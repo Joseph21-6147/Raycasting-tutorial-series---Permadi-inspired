@@ -1,8 +1,8 @@
-// Ray casting tutorial by Permadi (see: // https://permadi.com/1996/05/ray-casting-tutorial-4/)
+// Ray casting tutorial by Permadi (see: https://permadi.com/1996/05/ray-casting-tutorial-4/)
 //
 // Implementation of part 16 - vertical motion: looking up & down
 //
-// Joseph21, april 4, 2022
+// Joseph21, april 5, 2022
 //
 // Dependencies:
 //   *  olcPixelGameEngine.h - (olc::PixelGameEngine header file) by JavidX9 (see: https://github.com/OneLoneCoder/olcPixelGameEngine)
@@ -89,7 +89,7 @@ private:
     float fPlayerH       =  0.5f;
     float fPlayerFoV_deg = 60.0f;   // in degrees !!
 
-    // factor for looking up or down - initially 0.0f (although it's pixel space)
+    // factor for looking up or down - initially 0.0f (in pixel space: float is for smooth movement)
     float fLookUp =  0.0f;
     float fDistToProjPlane;         // constant distance to projection plane - is calculated in OnUserCreate()
 
@@ -149,7 +149,7 @@ public:
         sMap.append( "#..............................@" );
         sMap.append( "***---+++===###..###===+++---***" );
 
-        // init nMap as a 2d array of ints, having the same size as sMap, and containing the height per cell
+        // Initialise nMap as a 2d array of ints, having the same size as sMap, and containing the height per cell.
         nMap = new int[nMapX * nMapY];
         for (int y = 0; y < nMapY; y++) {
             for (int x = 0; x < nMapX; x++) {
@@ -208,10 +208,10 @@ public:
         // The player's position is the "from point"
         float fFromX = fPlayerX;
         float fFromY = fPlayerY;
-        // Calculate the "to point" using it's angle and fMaxDistance
+        // Calculate the "to point" using the player's angle and fMaxDistance
         float fToX = fPlayerX + fMaxDistance * cos( fRayAngle * PI / 180.0f );
         float fToY = fPlayerY + fMaxDistance * sin( fRayAngle * PI / 180.0f );
-        // work out the direction vector (fDX, fDY) and normalize it
+        // work out normalized direction vector (fDX, fDY)
         float fDX = fToX - fFromX;
         float fDY = fToY - fFromY;
         float fRayLen = sqrt( fDX * fDX + fDY * fDY );
@@ -243,7 +243,7 @@ public:
             fLengthPartialRayY = (float( nCurY + 1.0f ) - fFromY) * fSY;
         }
 
-        // did analysis get out of map boundaries?
+        // check whether analysis got out of map boundaries
         bool bOutOfBounds = (nCurX < 0 || nCurX >= nMapX ||
                              nCurY < 0 || nCurY >= nMapY );
         // was a hit with a wall cell found?
@@ -251,17 +251,18 @@ public:
         // did analysis reach the destination cell?
         bool bDestCellFound = (nCurX == int( fToX ) && nCurY == int( fToY ));
 
-        float fDistIfFound = 0.0f;
+        float fDistIfFound = 0.0f;  // accumulates distance of analysed piece of ray
+
         while (!bOutOfBounds && !bDestCellFound && fDistIfFound < fMaxDistance) {
 
             // advance to next map cell, depending on length of partial ray's
             if (fLengthPartialRayX < fLengthPartialRayY) {
-                // move in x direction
+                // continue analysis in x direction
                 nCurX += nGridStepX;
                 fDistIfFound = fLengthPartialRayX;
                 fLengthPartialRayX += fSX;
             } else {
-                // move in y direction
+                // continue analysis in y direction
                 nCurY += nGridStepY;
                 fDistIfFound = fLengthPartialRayY;
                 fLengthPartialRayY += fSY;
@@ -273,7 +274,8 @@ public:
                 bHitFound      = false;
                 bDestCellFound = false;
             } else {
-                bHitFound = bOutOfBounds ? false : sMap[ nCurY * nMapX + nCurX ] != '.';
+                // check if a collision is found
+                bHitFound = sMap[ nCurY * nMapX + nCurX ] != '.';
                 bDestCellFound = (nCurX == int( fToX ) && nCurY == int( fToY ));
 
                 if (bHitFound) {
@@ -394,7 +396,6 @@ public:
                 return pFloorSprite->Sample( fSampleX, fSampleY );
             };
 
-
             // prepare the rendering for this screen slice by calculating the list of intersections in this direction
             std::vector<IntersectInfo> vColHitlist;
             int nColHeight = 1;
@@ -429,6 +430,7 @@ public:
 #define    WALL_DRAWING 2
 #define    CEIL_DRAWING 3
 
+                // determine what type of segment is rendered: floor, wall or ceiling
                 int nDrawMode = UNKNOWN_DRAWING;
                 if (y >= nWallFloor) {
                     nDrawMode = FLOOR_DRAWING;
@@ -437,7 +439,8 @@ public:
                 } else if (y <= nWallCeil) {
                     while (nDrawMode == UNKNOWN_DRAWING) {
                         if (nHitListIndex < (int)vColHitlist.size() - 1) {
-                            // there are still hit points to process
+                            // the y coord is above the current wall and roof slide, but there are still hit points to process
+                            // so there could be other walls behind current wall sticking out above it
                             nHitListIndex += 1;
 
                             // get the info from next hit point
@@ -462,6 +465,7 @@ public:
                         }
                     }
                 } else {
+                	// this code is probably obsolete by now
                     std::cout << "ERROR: OnUserUpdate() --> can't position y value as floor, wall or ceiling..." << std::endl;
                 }
 
@@ -513,6 +517,7 @@ public:
                         }
                         break;
                     default:
+                        // this code is probably obsolete by now
                         std::cout << "ERROR: OnUserUpdate() --> unknown draw mode encountered: " << nDrawMode << std::endl;
                         // draw a yellow pixel for debugging
                         olc::Pixel auxSample = olc::YELLOW;

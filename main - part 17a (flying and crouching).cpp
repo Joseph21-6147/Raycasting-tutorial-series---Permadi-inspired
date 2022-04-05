@@ -2,7 +2,7 @@
 //
 // Implementation of part 17 a - vertical motion: flying & crouching
 //
-// Joseph21, april 4, 2022
+// Joseph21, april 5, 2022
 //
 // Dependencies:
 //   *  olcPixelGameEngine.h - (olc::PixelGameEngine header file) by JavidX9 (see: https://github.com/OneLoneCoder/olcPixelGameEngine)
@@ -54,7 +54,7 @@
  */
 
 
-#include <cfloat>     // I need FLT_MAX in the DDA function
+#include <cfloat>       // needed for constant FLT_MAX in the DDA function
 
 #define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
@@ -577,7 +577,7 @@ public:
                     }
                 }
 
-                // now we know what type of segments we're working on, render it
+                // now we know what type of segment we're working on, render it
                 switch (nDrawMode) {
                     case CEIL_DRAWING: {                         // ========== render ceiling ====================
                             if (RENDER_CEILING) {
