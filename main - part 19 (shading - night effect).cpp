@@ -1,8 +1,8 @@
 // Ray casting tutorial by Permadi (see: https://permadi.com/1996/05/ray-casting-tutorial-4/)
 //
-// Implementation of part 17 b - vertical motion: flying & crouching, roof texturing, optional mouse control
+// Implementation of part 19 - shading (night effect)
 //
-// Joseph21, april 4, 2022
+// Joseph21, april 5, 2022
 //
 // Dependencies:
 //   *  olcPixelGameEngine.h - (olc::PixelGameEngine header file) by JavidX9 (see: https://github.com/OneLoneCoder/olcPixelGameEngine)
@@ -10,19 +10,18 @@
 
 /* Short description
    -----------------
-   This implementation is a follow up of implementation part 17a. See the description of that implementation as well (and check on
+   This implementation is a follow up of implementation part 17b. See the description of that implementation as well (and check on
    the differences between that cpp file and this one).
 
-   For the flying / crouching effect, there's quite a few changes needed to enable crouching and flying. If you want to know about that,
-   please refer to the description of in part 17a.
+   For the shading effect I defined a global constant (RENDER_SHADED) to signal if shading is active or not. Additionally I created
+   a couple of class variables to hold the shading parameters (object intensity and intensity multiplier - see Permadi tut for the
+   shading formula) and default values for them. An additional shader function recalculates the intensity of a pixel depending on the
+   distance (for the wall shading I had to introduce an additional variable in OnUserUpdate()).
 
-  There are two relative small changes in this implementation wrt the previous one - roof texturing and optional mouse control:
-    1. Roof texturing: I added an additional sprite pointer to hold the loaded roof texture. The loading is (of course) in OnUserCreate().
-       Also added a lambda function - very similar to the floor sampling lambda - to calculate and return the correct sample from the
-       roof sprite.
-    2. Mouse control: Created a bool class variable that signals if this is on or off (toggles on M key). And added a function to grab
-       mouse coordinates and convert into [-1.0f, +1.0f] ranges (both horizontally and vertically. There's a stable zone in the middle
-       of the screen. This function is applied in the user input phase of OnUserUpdate().
+   The shading parameters can be manipulated using INS, DEL, HOME and END keys). The shader function is applied in the lambda's for
+   sampling the floor, roof or ceiling, and in the wall rendering.
+
+   That's all there is to it :)
 
    Have fun!
  */
@@ -48,6 +47,15 @@
 #define RENDER_CEILING       !MULTIPLE_LEVELS    // render ceilings only for single level world
 
 #define MOUSE_CONTROL        false
+
+// shading constants
+#define RENDER_SHADED        true
+#define OBJECT_INTENSITY       0.5f
+#define MULTIPLIER_INTENSITY   5.0f
+#define INTENSITY_SPEED        1.0f
+
+#define SHADE_FACTOR_MIN  0.1f      // the shade factor is clamped between these two values
+#define SHADE_FACTOR_MAX  1.0f
 
 // colour constants
 #define ROOF_COLOUR  olc::RED
@@ -79,8 +87,8 @@ private:
     float fMaxDistance = sqrt( nMapX * nMapX + nMapY * nMapY );
 
     // player: position and looking angle
-    float fPlayerX     = 3.0f;
-    float fPlayerY     = 3.0f;
+    float fPlayerX     = 2.0f;
+    float fPlayerY     = 2.0f;
     float fPlayerA_deg = 0.0f;      // looking angle is in degrees
 
     // player: height of eye point and field of view
@@ -97,6 +105,10 @@ private:
     olc::Sprite *pRoofSprite  = nullptr;
 
     bool bMouseControl = MOUSE_CONTROL;
+
+    // var's and initial values for shading
+    float fObjectIntensity     = MULTIPLE_LEVELS ? OBJECT_INTENSITY     :  0.2f;
+    float fIntensityMultiplier = MULTIPLE_LEVELS ? MULTIPLIER_INTENSITY : 10.0f;
 
 public:
 
@@ -117,38 +129,38 @@ public:
 
         //            0         1         2         3
         //            01234567890123456789012345678901
-        sMap.append( "............###................." );
-        sMap.append( ".*#########################....#" );
-        sMap.append( ".#............................##" );
-        sMap.append( ".#........#@*#................#." );
-        sMap.append( "##................##########..#." );
-        sMap.append( "##...#.....#......#....#......@." );
-        sMap.append( ".#...@............#.##.##..#..#." );
-        sMap.append( ".#...*@##............#...#.#..@." );
-        sMap.append( ".#................#..#.....#..#." );
-        sMap.append( ".#................##########..@." );
-        sMap.append( ".#...#........................#." );
-        sMap.append( ".#.......*#.#*................@." );
-        sMap.append( ".#...@...#...#................#." );
-        sMap.append( ".#.......#...#................@." );
-        sMap.append( ".#...*....@@@.................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#...-........................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#...+........................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#...=........................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#............................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#@*-+=..=+-*@#..#@*-+=..=+-*@#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#............................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#............................#." );
-        sMap.append( "..............................@." );
-        sMap.append( "..#@*-+++===###.###===+++---***." );
-        sMap.append( "..............#.#..............." );
+        sMap.append( "*#############...###########...." );
+        sMap.append( "................................" );
+        sMap.append( "#..............................#" );
+        sMap.append( "#........#@*#..................#" );
+        sMap.append( "#..................##########..#" );
+        sMap.append( "#...#.....#........#....#......@" );
+        sMap.append( "#...@.............##.##.###.#..#" );
+        sMap.append( "#...*@##..............#...#.#..@" );
+        sMap.append( "#.................##..###...#..#" );
+        sMap.append( "#..................##########..@" );
+        sMap.append( "#...#..........................#" );
+        sMap.append( "#.......*#.#*..................@" );
+        sMap.append( "#...@...#...#..................#" );
+        sMap.append( "#.......#...#..................@" );
+        sMap.append( "#...*....@@@...................#" );
+        sMap.append( "#..............................@" );
+        sMap.append( "#...-..........................#" );
+        sMap.append( "#..............................@" );
+        sMap.append( "#...+..........................#" );
+        sMap.append( "#..............................@" );
+        sMap.append( "#...=..........................#" );
+        sMap.append( "#..............................@" );
+        sMap.append( "#..............................#" );
+        sMap.append( "#..............................@" );
+        sMap.append( "#@*-+=..=+-*@#....#@*-+=..=+-*@#" );
+        sMap.append( "#..............................@" );
+        sMap.append( "#..............................#" );
+        sMap.append( "#..............................@" );
+        sMap.append( "#..............................#" );
+        sMap.append( "...............................@" );
+        sMap.append( "#@*---+++===###..###===+++---*@#" );
+        sMap.append( "..............#..#.............." );
 
         // Initialise nMap as a 2d array of ints, having the same size as sMap, and containing the height per cell.
         // NOTE - if MULTIPLE_LEVELS is false, the nMap will contain only 0 and 1 values
@@ -326,7 +338,6 @@ public:
 
         return (vHitList.size() > 0);
     }
-
     // Returns the projected bottom and top of a wall slice as y screen coordinates.
     // The wall is at fCorrectedDistToWall from eye point, nHorHight is the height of the horizon
     // and nWallHeight as the height of the wall (in blocks) according to the map
@@ -358,6 +369,15 @@ public:
         if (fRangeY >  0.2f) fVerPerc = (fRangeY - 0.2f) * ( 1.0f / 0.8f );
 
         return (fHorPerc != 0.0f || fVerPerc != 0.0f);
+    }
+
+	// Shade the pixel p using fDistance as a factor in the shade formula
+    olc::Pixel ShadePixel( const olc::Pixel &p, float fDistance ) {
+        if (RENDER_SHADED) {
+            float fShadeFactor = std::max( SHADE_FACTOR_MIN, std::min( SHADE_FACTOR_MAX, fObjectIntensity * ( fIntensityMultiplier /  fDistance )));
+            return p * fShadeFactor;
+        } else
+            return p;
     }
 
     bool OnUserUpdate( float fElapsedTime ) override {
@@ -445,6 +465,12 @@ public:
         // reset look up value and player height on pressing 'R'
         if (GetKey( olc::R ).bReleased) { fPlayerH = 0.5f; fLookUp = 0.0f; }
 
+        // alter object intensity and multiplier
+        if (GetKey( olc::INS  ).bHeld) fObjectIntensity     += INTENSITY_SPEED * fElapsedTime;
+        if (GetKey( olc::DEL  ).bHeld) fObjectIntensity     -= INTENSITY_SPEED * fElapsedTime;
+        if (GetKey( olc::HOME ).bHeld) fIntensityMultiplier += INTENSITY_SPEED * fElapsedTime;
+        if (GetKey( olc::END  ).bHeld) fIntensityMultiplier -= INTENSITY_SPEED * fElapsedTime;
+
         // step 2 - game logic
         // ===================
 
@@ -479,8 +505,8 @@ public:
                 // integer part and only keeping the fractional part. Wrap around if the result < 0
                 float fSampleX = fCeilProjX - int(fCeilProjX); if (fSampleX < 0.0f) fSampleX += 1.0f;
                 float fSampleY = fCeilProjY - int(fCeilProjY); if (fSampleY < 0.0f) fSampleY += 1.0f;
-                // having both sample coordinates, get the sample and return it
-                return pCeilSprite->Sample( fSampleX, fSampleY );
+                // having both sample coordinates, get the sample, shade and return it
+                return ShadePixel( pCeilSprite->Sample( fSampleX, fSampleY), fCeilProjDistance );
             };
 
             // this lambda returns a sample of the floor through the pixel at screen coord (px, py)
@@ -495,8 +521,8 @@ public:
                 // integer part and only keeping the fractional part. Wrap around if the result < 0
                 float fSampleX = fFloorProjX - int(fFloorProjX); if (fSampleX < 0.0f) fSampleX += 1.0f;
                 float fSampleY = fFloorProjY - int(fFloorProjY); if (fSampleY < 0.0f) fSampleY += 1.0f;
-                // having both sample coordinates, get the sample and return it
-                return pFloorSprite->Sample( fSampleX, fSampleY );
+                // having both sample coordinates, get the sample, shade and return it
+                return ShadePixel( pFloorSprite->Sample( fSampleX, fSampleY ), fFloorProjDistance );
             };
 
             // this lambda returns a sample of the roof through the pixel at screen coord (px, py)
@@ -511,13 +537,14 @@ public:
                 // integer part and only keeping the fractional part. Wrap around if the result < 0
                 float fSampleX = fRoofProjX - int(fRoofProjX); if (fSampleX < 0.0f) fSampleX += 1.0f;
                 float fSampleY = fRoofProjY - int(fRoofProjY); if (fSampleY < 0.0f) fSampleY += 1.0f;
-                // having both sample coordinates, get the sample and return it
-                return pRoofSprite->Sample( fSampleX, fSampleY );
+                // having both sample coordinates, get the sample, shade and return it
+                return ShadePixel( pRoofSprite->Sample( fSampleX, fSampleY ), fRoofProjDistance );
             };
 
             // prepare the rendering for this screen slice by calculating the list of intersections in this direction
             std::vector<IntersectInfo> vColHitlist;
             int nColHeight = 1;
+            float fCurDistance = 0.0f;     // distance var needed for wall shading
             if (GetDistancesToWalls( fCurAngle, vColHitlist )) {
 
                 // at least one wall / block was hit. Extend the hit list with projected bottom / ceiling info
@@ -537,11 +564,12 @@ public:
                 }
 
                 // get the info from first hit point
-                fX_hit     = vColHitlist[0].fHitX;
-                fY_hit     = vColHitlist[0].fHitY;
-                nX_hit     = vColHitlist[0].nMapCoordX;
-                nY_hit     = vColHitlist[0].nMapCoordY;
-                nColHeight = vColHitlist[0].nHeight;
+                fX_hit       = vColHitlist[0].fHitX;
+                fY_hit       = vColHitlist[0].fHitY;
+                nX_hit       = vColHitlist[0].nMapCoordX;
+                nY_hit       = vColHitlist[0].nMapCoordY;
+                nColHeight   = vColHitlist[0].nHeight;
+                fCurDistance = vColHitlist[0].fDistance;
 
                 nWallCeil  = vColHitlist[0].ceil_front;
                 nWallCeil2 = vColHitlist[0].ceil_back;
@@ -549,9 +577,10 @@ public:
 
             } else {
                 // no wall was hit - set bottom and top value for wall at the horizon
-                nWallCeil  = nHorizonHeight;
-                nWallCeil2 = nWallCeil;
-                nWallFloor = nHorizonHeight;
+                nWallCeil    = nHorizonHeight;
+                nWallCeil2   = nWallCeil;
+                nWallFloor   = nHorizonHeight;
+                fCurDistance = fMaxDistance;
             }
 
             // now render this slice using the info of the hit list
@@ -582,11 +611,12 @@ public:
                             nHitListIndex += 1;
 
                             // get the info from next hit point
-                            fX_hit     = vColHitlist[ nHitListIndex ].fHitX;
-                            fY_hit     = vColHitlist[ nHitListIndex ].fHitY;
-                            nX_hit     = vColHitlist[ nHitListIndex ].nMapCoordX;
-                            nY_hit     = vColHitlist[ nHitListIndex ].nMapCoordY;
-                            nColHeight = vColHitlist[ nHitListIndex ].nHeight;
+                            fX_hit       = vColHitlist[ nHitListIndex ].fHitX;
+                            fY_hit       = vColHitlist[ nHitListIndex ].fHitY;
+                            nX_hit       = vColHitlist[ nHitListIndex ].nMapCoordX;
+                            nY_hit       = vColHitlist[ nHitListIndex ].nMapCoordY;
+                            nColHeight   = vColHitlist[ nHitListIndex ].nHeight;
+                            fCurDistance = vColHitlist[ nHitListIndex ].fDistance;
 
                             nWallCeil  = vColHitlist[ nHitListIndex ].ceil_front;
                             nWallCeil2 = vColHitlist[ nHitListIndex ].ceil_back;
@@ -619,7 +649,7 @@ public:
                             Draw( x, y, auxSample );
                         }
                         break;
-                    case ROOF_DRAWING: {                        // ========== render roof   ====================
+                    case ROOF_DRAWING: {                         // ========== render roof    ====================
                             olc::Pixel auxSample = get_roof_sample( x, y, nColHeight );
                             Draw( x, y, auxSample );
                         }
@@ -653,9 +683,9 @@ public:
                             if ( 0.25f * PI <= fTestAngle && fTestAngle <   0.75f * PI) fSampleX = fX_hit - (float)nX_hit;  // north side
                             if (-0.75f * PI >  fTestAngle || fTestAngle >=  0.75f * PI) fSampleX = fY_hit - (float)nY_hit;  // west  side
 
-                            // having both sample coordinates, get the sample and draw the pixel
+                            // having both sample coordinates, get the sample, shade it and draw the pixel
                             olc::Pixel auxSample = pWallSprite->Sample( fSampleX, fSampleY );
-                            Draw( x, y, auxSample );
+                            Draw( x, y, ShadePixel( auxSample, fCurDistance ));
                         }
                         break;
                 }
@@ -663,11 +693,14 @@ public:
         }
 
         // output player and rendering values for debugging
-        DrawString( 10, 10, "fPlayerX = " + std::to_string( fPlayerX     ), TEXT_COLOUR );
-        DrawString( 10, 20, "fPlayerY = " + std::to_string( fPlayerY     ), TEXT_COLOUR );
-        DrawString( 10, 30, "fPlayerA = " + std::to_string( fPlayerA_deg ), TEXT_COLOUR );
-        DrawString( 10, 40, "fPlayerH = " + std::to_string( fPlayerH     ), TEXT_COLOUR );
-        DrawString( 10, 50, "fLookUp  = " + std::to_string( fLookUp      ), TEXT_COLOUR );
+        DrawString( 10, 10, "fPlayerX   = " + std::to_string( fPlayerX     ), TEXT_COLOUR );
+        DrawString( 10, 20, "fPlayerY   = " + std::to_string( fPlayerY     ), TEXT_COLOUR );
+        DrawString( 10, 30, "fPlayerA   = " + std::to_string( fPlayerA_deg ), TEXT_COLOUR );
+        DrawString( 10, 40, "fPlayerH   = " + std::to_string( fPlayerH     ), TEXT_COLOUR );
+        DrawString( 10, 50, "fLookUp    = " + std::to_string( fLookUp      ), TEXT_COLOUR );
+
+        DrawString( 10, 70, "Intensity  = " + std::to_string( fObjectIntensity     ), TEXT_COLOUR );
+        DrawString( 10, 80, "Multiplier = " + std::to_string( fIntensityMultiplier ), TEXT_COLOUR );
 
         return true;
     }
