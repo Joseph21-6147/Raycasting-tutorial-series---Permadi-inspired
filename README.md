@@ -8,7 +8,7 @@ The series is progressive - each next implementation builds upon the previous on
 In each cpp file I added a short description where I summarize what that particular part is about. 
 
 There are a few dependencies:
-1. all implementations are built upon the olcPixelGameEngine.h header file by JavidX9 (see: 
+1. all implementations are built upon the olcPixelGameEngine.h header file by JavidX9 - see: https://github.com/OneLoneCoder/olcPixelGameEngine 
 2. for most of the implementations you need some sprite files (.png) for the texturing. Adapt the code to load these sprite files in OnUserCreate() to get it working on your setup.
 
 Have fun with it!
