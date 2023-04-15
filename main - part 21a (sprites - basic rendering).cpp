@@ -1,4 +1,4 @@
-// ELABORATING ON - Ray casting tutorial by Permadi (see: https://permadi.com/1996/05/ray-casting-tutorial-4/)
+// ELABORATING ON - Ray casting tutorial by Permadi
 // (starting with part 20 all code files are my own elaboration on the Permadi basis)
 //
 // Implementation of part 21 a - introducing sprites (billboards): basic rendering
@@ -37,10 +37,10 @@
 
 // Screen and pixel constants - keep the screen sizes constant and vary the resolution by adapting the pixel size
 // to prevent accidentally defining too large a window
-#define SCREEN_X   1600
-#define SCREEN_Y    900
-#define PIXEL_X       2
-#define PIXEL_Y       2
+#define SCREEN_X   1200
+#define SCREEN_Y    720
+#define PIXEL_X       1
+#define PIXEL_Y       1
 
 
 #define STRETCHED_TEXTURING  false  // if true, multiple levels are stretched textured. If false: per 1x1x1 block
@@ -70,6 +70,10 @@
 #define SPEED_LOOKUP     200.0f   // looking up or down      - 200 pixels per second
 #define SPEED_STRAFE_UP    1.0f   // flying or chroucing     -   1.0 block per second
 
+// mini map constants
+#define MINIMAP_TILE_SIZE     32
+#define MINIMAP_SCALE_FACTOR   0.2   // should be 0.2
+
 float deg2rad( float fAngleInDeg ) { return fAngleInDeg / 180.0f * PI; }
 float rad2deg( float fAngleInRad ) { return fAngleInRad * 180.0f / PI; }
 
@@ -94,7 +98,7 @@ private:
     // player: position and looking angle
     float fPlayerX     = 2.5f;
     float fPlayerY     = 2.5f;
-    float fPlayerA_deg = 0.0f;      // looking angle is in degrees
+    float fPlayerA_deg = 0.0f;      // looking angle is in degrees, 0.0f is EAST
 
     // player: height of eye point and field of view
     float fPlayerH       =  0.5f;
@@ -111,11 +115,18 @@ private:
 
     olc::Sprite *pObjectSprite = nullptr;
 
-    bool bMouseControl = MOUSE_CONTROL;
+    bool bMouseControl = MOUSE_CONTROL;     // toggle on mouse control (trigger key M)
 
     // var's and initial values for shading
     float fObjectIntensity     = MULTIPLE_LEVELS ? OBJECT_INTENSITY     :  0.2f;
     float fIntensityMultiplier = MULTIPLE_LEVELS ? MULTIPLIER_INTENSITY : 10.0f;
+
+    // toggles for rendering
+    bool bMinimap   = false;    // toggle on mini map rendering (trigger key P)
+    bool bMapRays   = false;    //                              (trigger key O)
+    bool bDebugInfo = false;    //                              (trigger key I)
+
+    std::vector<olc::vf2d> vRayList;    // needed for ray rendering in minimap
 
     struct sObject {
         float x, y;
@@ -137,8 +148,6 @@ public:
 #define FLOOR_1QRTR '1'    // block of height 1/4
 #define FLOOR_HALVE '2'    //                 2/4
 #define FLOOR_3QRTR '3'    //                 3/4
-
-#define GATE_BLOCK  'G'    // has height 1
 
 
     bool OnUserCreate() override {
@@ -372,6 +381,83 @@ public:
         return (vHitList.size() > 0);
     }
 
+// ==============================/   Mini map rendering stuff   /==============================
+
+    // function to render the mini map on the screen
+    void RenderMapGrid() {
+        // fill background for minimap
+        float fMMFactor = MINIMAP_SCALE_FACTOR * MINIMAP_TILE_SIZE;
+        FillRect( 0, 0, nMapX * fMMFactor, nMapY * fMMFactor, olc::VERY_DARK_GREEN );
+        // draw each tile
+        for (int y = 0; y < nMapY; y++) {
+            for (int x = 0; x < nMapX; x++) {
+                // colour different for different heights
+                olc::Pixel p;
+                bool bBorderFlag = true;
+                if (fMap[ y * nMapX + x ] == 0.0f) {
+                    p = olc::VERY_DARK_GREEN;   // don't visibly render
+                    bBorderFlag = false;
+                } else if (fMap[ y * nMapX + x ] <  1.0f) {
+                    p = olc::PixelF( fMap[ y * nMapX + x], 0.0f, 0.0f );    // height < 1.0f = shades of red
+                } else {
+                    float fColFactor = std::min( fMap[ y * nMapX + x] / 4.0f + 0.5f, 1.0f );    // heights > 1.0f = shades of blue
+                    p = olc::PixelF( 0.0f, 0.0f, fColFactor );
+                }
+                // render this tile
+                FillRect( x * fMMFactor + 1, y * fMMFactor + 1, fMMFactor - 1, fMMFactor - 1, p );
+                if (bBorderFlag) {
+                    p = olc::WHITE;
+                    DrawRect( x * fMMFactor, y * fMMFactor, fMMFactor, fMMFactor, p);
+                }
+            }
+        }
+    }
+
+    // function to render the player in the mini map on the screen
+    void RenderMapPlayer() {
+        float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
+        olc::Pixel p = olc::YELLOW;
+        float px = fPlayerX * fMMFactor;
+        float py = fPlayerY * fMMFactor;
+        float pr = 0.6f     * fMMFactor;
+        FillCircle( px, py, pr, p );
+        float dx = cosf( fPlayerA_deg / 180.0f * PI );
+        float dy = sinf( fPlayerA_deg / 180.0f * PI );
+        float pdx = dx * 2.0f * fMMFactor;
+        float pdy = dy * 2.0f * fMMFactor;
+        DrawLine( px, py, px + pdx, py + pdy, p );
+    }
+
+    // function to render the rays in the mini map on the screen
+    void RenderMapRays() {
+        float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
+        for (auto &elt : vRayList) {
+            DrawLine(
+                fPlayerX * fMMFactor,
+                fPlayerY * fMMFactor,
+                elt.x * fMMFactor,
+                elt.y * fMMFactor,
+                olc::GREEN
+            );
+        }
+    }
+
+    // function to render debug info in a separate hud on the screen
+    void RenderDebugInfo() {
+        int nStartX = ScreenWidth() - 200;
+        int nStartY =  10;
+        // render background pane for debug info
+        FillRect( nStartX, nStartY, 195, 85, olc::VERY_DARK_GREEN );
+        // output player and rendering values for debugging
+        DrawString( nStartX + 5, nStartY +  5, "fPlayerX = "   + std::to_string( fPlayerX             ), TEXT_COLOUR );
+        DrawString( nStartX + 5, nStartY + 15, "fPlayerY = "   + std::to_string( fPlayerY             ), TEXT_COLOUR );
+        DrawString( nStartX + 5, nStartY + 25, "fPlayerA = "   + std::to_string( fPlayerA_deg         ), TEXT_COLOUR );
+        DrawString( nStartX + 5, nStartY + 35, "fPlayerH = "   + std::to_string( fPlayerH             ), TEXT_COLOUR );
+        DrawString( nStartX + 5, nStartY + 45, "fLookUp  = "   + std::to_string( fLookUp              ), TEXT_COLOUR );
+        DrawString( nStartX + 5, nStartY + 65, "Intensity  = " + std::to_string( fObjectIntensity     ), TEXT_COLOUR );
+        DrawString( nStartX + 5, nStartY + 75, "Multiplier = " + std::to_string( fIntensityMultiplier ), TEXT_COLOUR );
+    }
+
     // Returns the projected bottom and top of a wall slice as y screen coordinates.
     // The wall is at fCorrectedDistToWall from eye point, nHorHight is the height of the horizon
     // and fWallHeight as the height of the wall (in blocks) according to the map
@@ -509,6 +595,11 @@ public:
         if (GetKey( olc::HOME ).bHeld) fIntensityMultiplier += INTENSITY_SPEED * fElapsedTime;
         if (GetKey( olc::END  ).bHeld) fIntensityMultiplier -= INTENSITY_SPEED * fElapsedTime;
 
+        // toggles for HUDs
+        if (GetKey( olc::I ).bPressed) bDebugInfo = !bDebugInfo;
+        if (GetKey( olc::P ).bPressed) bMinimap   = !bMinimap;
+        if (GetKey( olc::O ).bPressed) bMapRays   = !bMapRays;
+
         // step 2 - game logic
         // ===================
 
@@ -619,6 +710,12 @@ public:
                 nWallCeil2 = nWallCeil;
                 nWallFloor = nHorizonHeight;
                 fCurDistance = fMaxDistance;
+            }
+
+            // populate ray list for rendering mini map
+            if (!vColHitlist.empty()) {
+                olc::vf2d curHitPoint = { vColHitlist[0].fHitX, vColHitlist[0].fHitY };
+                vRayList.push_back( curHitPoint );
             }
 
             // now render this slice using the info of the hit list
@@ -782,15 +879,19 @@ public:
                 }
             }
         }
-        // output player and rendering values for debugging
-        DrawString( 10, 10, "fPlayerX = " + std::to_string( fPlayerX     ), TEXT_COLOUR );
-        DrawString( 10, 20, "fPlayerY = " + std::to_string( fPlayerY     ), TEXT_COLOUR );
-        DrawString( 10, 30, "fPlayerA = " + std::to_string( fPlayerA_deg ), TEXT_COLOUR );
-        DrawString( 10, 40, "fPlayerH = " + std::to_string( fPlayerH     ), TEXT_COLOUR );
-        DrawString( 10, 50, "fLookUp  = " + std::to_string( fLookUp      ), TEXT_COLOUR );
-
-        DrawString( 10, 70, "Intensity  = " + std::to_string( fObjectIntensity     ), TEXT_COLOUR );
-        DrawString( 10, 80, "Multiplier = " + std::to_string( fIntensityMultiplier ), TEXT_COLOUR );
+        
+        if (bMinimap) {
+            RenderMapGrid();
+            if (bMapRays) {
+                RenderMapRays();
+            }
+            RenderMapPlayer();
+        }
+        vRayList.clear();
+                
+        if (bDebugInfo) {
+            RenderDebugInfo();
+        }
 
         return true;
     }
