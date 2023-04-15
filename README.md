@@ -11,8 +11,12 @@ There are a few dependencies:
 1. all implementations are built upon the olcPixelGameEngine.h header file by JavidX9 - see: https://github.com/OneLoneCoder/olcPixelGameEngine 
 2. for most of the implementations you need some sprite files (.png) for the texturing. Adapt the code to load these sprite files in OnUserCreate() to get it working on your setup.
 
-# Update from April 6, 2023
-After implementing the ray casting tutorial I decided to add on the functionality of this code. Starting from part 20 I'm currently expanding on the series.
+# Update 
+April 6, 2023
+
+After implementing the ray casting tutorial series I decided to elaborate on the functionality of this code. Starting from part 20 I'm currently expanding on the series.
+
+Check out the file Raycasting tutorial - implementations on github YYYYMMDD.pdf to see what has been added.
 
 Have fun with it!
 
