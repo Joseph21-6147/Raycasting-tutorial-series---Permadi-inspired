@@ -3,7 +3,7 @@
 //
 // Implementation of part 21 b - introducing sprites (billboards): added simple (column based) depth buffer
 //
-// Joseph21, april 14, 2023
+// Joseph21, april 18, 2023
 //
 // Dependencies:
 //   *  olcPixelGameEngine.h - (olc::PixelGameEngine header file) by JavidX9 (see: https://github.com/OneLoneCoder/olcPixelGameEngine)
@@ -69,8 +69,68 @@
 #define MINIMAP_TILE_SIZE     32
 #define MINIMAP_SCALE_FACTOR   0.2   // should be 0.2
 
-float deg2rad( float fAngleInDeg ) { return fAngleInDeg / 180.0f * PI; }
-float rad2deg( float fAngleInRad ) { return fAngleInRad * 180.0f / PI; }
+#define SIGNIFICANCE 3
+#define SIG_POW10    1000
+
+// ==============================/  convenience functions for angles  /==============================
+
+float deg2rad( float fAngleDeg ) { return fAngleDeg * PI / 180.0f; }
+float rad2deg( float fAngleRad ) { return fAngleRad / PI * 180.0f; }
+float deg_mod2pi( float fAngleDeg ) {
+    while (fAngleDeg <    0.0f) fAngleDeg += 360.0f;
+    while (fAngleDeg >= 360.0f) fAngleDeg -= 360.0f;
+    return fAngleDeg;
+}
+float rad_mod2pi( float fAngleRad ) {
+    while (fAngleRad <  0.0f     ) fAngleRad += 2.0f * PI;
+    while (fAngleRad >= 2.0f * PI) fAngleRad -= 2.0f * PI;
+    return fAngleRad;
+}
+
+// ==============================/  lookup sine and cosine functions  /==============================
+
+float lu_sin_array[360 * SIG_POW10];
+float lu_cos_array[360 * SIG_POW10];
+
+void init_lu_sin_array() {
+    for (int i = 0; i < 360; i++) {
+        for (int j = 0; j < SIG_POW10; j++) {
+            int nIndex = i * SIG_POW10 + j;
+            float fArg_deg = float( nIndex ) / float( SIG_POW10 );
+            lu_sin_array[ nIndex ] = sinf( deg2rad( fArg_deg ));
+        }
+    }
+}
+
+void init_lu_cos_array() {
+    for (int i = 0; i < 360; i++) {
+        for (int j = 0; j < SIG_POW10; j++) {
+            int nIndex = i * SIG_POW10 + j;
+            float fArg_deg = float( nIndex ) / float( SIG_POW10 );
+            lu_cos_array[ nIndex ] = cosf( deg2rad( fArg_deg ));
+        }
+    }
+}
+
+float lu_sin( float fDegreeAngle ) {
+    fDegreeAngle = deg_mod2pi( fDegreeAngle );
+    int nWholeNr = int( fDegreeAngle );
+    int nRemainder = int( (fDegreeAngle - nWholeNr) * float( SIG_POW10 ));
+    int nIndex = nWholeNr * SIG_POW10 + nRemainder;
+    return lu_sin_array[ nIndex ];
+}
+
+float lu_cos( float fDegreeAngle ) {
+    fDegreeAngle = deg_mod2pi( fDegreeAngle );
+    int nWholeNr = int( fDegreeAngle );
+    int nRemainder = int( (fDegreeAngle - nWholeNr) * float( SIG_POW10 ));
+    int nIndex = nWholeNr * SIG_POW10 + nRemainder;
+    return lu_cos_array[ nIndex ];
+}
+
+
+// ==============================/  Start of PGE derived class   /==============================
+
 
 class MyRayCaster : public olc::PixelGameEngine {
 
@@ -142,9 +202,9 @@ public:
 #define FFTH_FLOOR '+'     //                 5
 #define SXTH_FLOOR '='     //                 6
 
-#define FLOOR_1QRTR '1'    // block of height 1/4
-#define FLOOR_HALVE '2'    //                 2/4
-#define FLOOR_3QRTR '3'    //                 3/4
+#define FLOOR_1QRTR 'Q'    // block of height 1/4
+#define FLOOR_HALVE 'H'    //                 2/4
+#define FLOOR_3QRTR 'T'    //                 3/4
 
 
     bool OnUserCreate() override {
@@ -158,35 +218,35 @@ public:
         sMap.append( "............###................." );
         sMap.append( ".*#########################....#" );
         sMap.append( ".#............................##" );
-        sMap.append( ".#............................#." );
-        sMap.append( "##................##########..#." );
-        sMap.append( "##...#............#....#......@." );
-        sMap.append( ".#...@...........##.##.#...#..#." );
-        sMap.append( ".#...*@##................#.#..@." );
-        sMap.append( ".#...............##........#..#." );
-        sMap.append( ".#................####...###..@." );
-        sMap.append( ".#...#........................#." );
-        sMap.append( ".#.......*#.#*................@." );
-        sMap.append( ".#...@...#...#.......1........#." );
-        sMap.append( ".#.......#...#.......2........@." );
-        sMap.append( ".#...*....@@@........3........#." );
+        sMap.append( ".#..............Q.H.T.#.......@." );
+        sMap.append( ".#............................@." );
+        sMap.append( ".#............................@." );
+        sMap.append( ".#...................Q........@." );
+        sMap.append( ".#...................H........@." );
+        sMap.append( ".#...................T........@." );
         sMap.append( ".#...................#........@." );
-        sMap.append( ".#...-...............3........#." );
-        sMap.append( ".#...................2........@." );
-        sMap.append( ".#...+...............1........#." );
+        sMap.append( ".#...................T........@." );
+        sMap.append( ".#.......*#.#*.......H........@." );
+        sMap.append( ".#...@...#...#.......Q........#." );
+        sMap.append( ".#.......#...#................@." );
+        sMap.append( ".#...*....@@@.................#." );
         sMap.append( ".#............................@." );
-        sMap.append( ".#...=........................#." );
-        sMap.append( ".#.........1.2.3.#............@." );
-        sMap.append( ".#............................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#@*-+=..=+-*@#..#@*-+=..=+-*@#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#............................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#............................#." );
+        sMap.append( ".#...-..........1.............#." );
+        sMap.append( ".#...............2............@." );
+        sMap.append( ".#...+............3...........#." );
+        sMap.append( ".#.................4..........@." );
+        sMap.append( ".#...=..............5.........#." );
+        sMap.append( ".#.........1234......6........@." );
+        sMap.append( ".#............5.......7.......#." );
+        sMap.append( ".#.........9876........8......@." );
+        sMap.append( ".#......................9.....@." );
+        sMap.append( ".#.......................#....@." );
         sMap.append( "..............................@." );
-        sMap.append( "..#@*-+++===###.###===+++---***." );
+        sMap.append( "..#@*-+++===#@*.*@#===+++---***." );
         sMap.append( "..............#.#..............." );
+        sMap.append( "................................" );
+        sMap.append( "................................" );
+        sMap.append( "................................" );
 
         // Initialise fMap as a 2d array of floats, having the same size as sMap, and containing the height per cell.
         // NOTE - if MULTIPLE_LEVELS is false, the fMap will contain no values > 1
@@ -205,11 +265,26 @@ public:
                     case FLOOR_1QRTR: fMap[ y * nMapX + x ] = 0.25f; break;
                     case FLOOR_HALVE: fMap[ y * nMapX + x ] = 0.50f; break;
                     case FLOOR_3QRTR: fMap[ y * nMapX + x ] = 0.75f; break;
+
+                    case         '1': fMap[ y * nMapX + x ] = 0.10f; break;
+                    case         '2': fMap[ y * nMapX + x ] = 0.20f; break;
+                    case         '3': fMap[ y * nMapX + x ] = 0.30f; break;
+                    case         '4': fMap[ y * nMapX + x ] = 0.40f; break;
+                    case         '5': fMap[ y * nMapX + x ] = 0.50f; break;
+                    case         '6': fMap[ y * nMapX + x ] = 0.60f; break;
+                    case         '7': fMap[ y * nMapX + x ] = 0.70f; break;
+                    case         '8': fMap[ y * nMapX + x ] = 0.80f; break;
+                    case         '9': fMap[ y * nMapX + x ] = 0.90f; break;
                 }
             }
         }
+
+        // initialize sine and cosine lookup arrays
+        init_lu_sin_array();
+        init_lu_cos_array();
+
         // Work out distance to projection plane. This is a constant float value, depending on the width of the projection plane and the field of view.
-        fDistToProjPlane = ((ScreenWidth() / 2.0f) / sin( (fPlayerFoV_deg / 2.0f) * PI / 180.0f)) * cos( (fPlayerFoV_deg / 2.0f) * PI / 180.0f);
+        fDistToProjPlane = ((ScreenWidth() / 2.0f) / lu_sin( fPlayerFoV_deg / 2.0f )) * lu_cos( fPlayerFoV_deg / 2.0f );
 
         // lambda expression for loading sprite files with error checking on the existence of sFileName
         auto load_sprite_file = [=]( const std::string &sFileName ) {
@@ -275,8 +350,8 @@ public:
         float fFromX = fPlayerX;
         float fFromY = fPlayerY;
         // Calculate the "to point" using the player's angle and fMaxDistance
-        float fToX = fPlayerX + fMaxDistance * cos( fRayAngle * PI / 180.0f );
-        float fToY = fPlayerY + fMaxDistance * sin( fRayAngle * PI / 180.0f );
+        float fToX = fPlayerX + fMaxDistance * lu_cos( fRayAngle );
+        float fToY = fPlayerY + fMaxDistance * lu_sin( fRayAngle );
         // work out normalized direction vector (fDX, fDY)
         float fDX = fToX - fFromX;
         float fDY = fToY - fFromY;
@@ -422,8 +497,8 @@ public:
         float py = fPlayerY * fMMFactor;
         float pr = 0.6f     * fMMFactor;
         FillCircle( px, py, pr, p );
-        float dx = cosf( fPlayerA_deg / 180.0f * PI );
-        float dy = sinf( fPlayerA_deg / 180.0f * PI );
+        float dx = lu_cos( fPlayerA_deg );
+        float dy = lu_sin( fPlayerA_deg );
         float pdx = dx * 2.0f * fMMFactor;
         float pdy = dy * 2.0f * fMMFactor;
         DrawLine( px, py, px + pdx, py + pdy, p );
@@ -520,11 +595,10 @@ public:
         float fNewY = fPlayerY;
 
         // walking forward, backward and strafing left, right
-        float fPlayerA_rad = deg2rad( fPlayerA_deg );
-        if (GetKey( olc::W ).bHeld) { fNewX += cos( fPlayerA_rad ) * SPEED_MOVE   * fElapsedTime; fNewY += sin( fPlayerA_rad ) * SPEED_MOVE   * fElapsedTime; }   // walk forward
-        if (GetKey( olc::S ).bHeld) { fNewX -= cos( fPlayerA_rad ) * SPEED_MOVE   * fElapsedTime; fNewY -= sin( fPlayerA_rad ) * SPEED_MOVE   * fElapsedTime; }   // walk backwards
-        if (GetKey( olc::Q ).bHeld) { fNewX += sin( fPlayerA_rad ) * SPEED_STRAFE * fElapsedTime; fNewY -= cos( fPlayerA_rad ) * SPEED_STRAFE * fElapsedTime; }   // strafe left
-        if (GetKey( olc::E ).bHeld) { fNewX -= sin( fPlayerA_rad ) * SPEED_STRAFE * fElapsedTime; fNewY += cos( fPlayerA_rad ) * SPEED_STRAFE * fElapsedTime; }   // strafe right
+        if (GetKey( olc::W ).bHeld) { fNewX += lu_cos( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; fNewY += lu_sin( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; }   // walk forward
+        if (GetKey( olc::S ).bHeld) { fNewX -= lu_cos( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; fNewY -= lu_sin( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; }   // walk backwards
+        if (GetKey( olc::Q ).bHeld) { fNewX += lu_sin( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; fNewY -= lu_cos( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; }   // strafe left
+        if (GetKey( olc::E ).bHeld) { fNewX -= lu_sin( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; fNewY += lu_cos( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; }   // strafe right
         // collision detection - check if out of bounds or inside non-empty tile
         // only update position if no collision
         if (fNewX >= 0 && fNewX < nMapX &&
@@ -613,6 +687,7 @@ public:
         int nHorizonHeight   = ScreenHeight() * fPlayerH + (int)fLookUp;
         float fAngleStep = fPlayerFoV_deg / float( ScreenWidth() );
 
+        // render background scene:
         // iterate over all screen slices, processing the screen in columns
         for (int x = 0; x < ScreenWidth(); x++) {
             float fViewAngle = float( x - nHalfScreenWidth ) * fAngleStep;
@@ -621,16 +696,17 @@ public:
             float fX_hit, fY_hit;   // to hold exact (float) hit location
             int   nX_hit, nY_hit;   // to hold coords of tile that was hit
 
-            int nWallCeil, nWallCeil2, nWallFloor;   // to store the top and bottom y coord of the wall per column
+            int nWallTop, nWallTop2, nWallBottom;   // to store the top and bottom y coord of the wall per column
 
             // this lambda returns a sample of the ceiling through the pixel at screen coord (px, py)
             auto get_ceil_sample = [=]( int px, int py ) -> olc::Pixel {
                 // work out the distance to the location on the ceiling you are looking at through this pixel
                 // (the pixel is given since you know the x and y screen coordinate to draw to)
-                float fCeilProjDistance = (( (1.0f - fPlayerH) / float( nHorizonHeight - py )) * fDistToProjPlane) / cos( fViewAngle * PI / 180.0f );
+                float fCeilProjDistance = (( (1.0f - fPlayerH) / float( nHorizonHeight - py )) * fDistToProjPlane) / lu_cos( fViewAngle );
                 // calculate the world ceiling coordinate from the player's position, the distance and the view angle + player angle
-                float fCeilProjX = fPlayerX + fCeilProjDistance * cos( fCurAngle * PI / 180.0f );
-                float fCeilProjY = fPlayerY + fCeilProjDistance * sin( fCurAngle * PI / 180.0f );
+                float fCeilProjX = fPlayerX + fCeilProjDistance * lu_cos( fCurAngle );
+                float fCeilProjY = fPlayerY + fCeilProjDistance * lu_sin( fCurAngle );
+
                 // calculate the sample coordinates for that world ceiling coordinate, by subtracting the
                 // integer part and only keeping the fractional part. Wrap around if the result < 0
                 float fSampleX = fCeilProjX - int(fCeilProjX); if (fSampleX < 0.0f) fSampleX += 1.0f;
@@ -643,10 +719,11 @@ public:
             auto get_floor_sample = [=]( int px, int py ) -> olc::Pixel {
                 // work out the distance to the location on the floor you are looking at through this pixel
                 // (the pixel is given since you know the x and y to draw to)
-                float fFloorProjDistance = ((fPlayerH / float( py - nHorizonHeight )) * fDistToProjPlane) / cos( fViewAngle * PI / 180.0f );
+                float fFloorProjDistance = ((fPlayerH / float( py - nHorizonHeight )) * fDistToProjPlane) / lu_cos( fViewAngle );
                 // calculate the world floor coordinate from the distance and the view angle + player angle
-                float fFloorProjX = fPlayerX + fFloorProjDistance * cos( fCurAngle * PI / 180.0f );
-                float fFloorProjY = fPlayerY + fFloorProjDistance * sin( fCurAngle * PI / 180.0f );
+                float fFloorProjX = fPlayerX + fFloorProjDistance * lu_cos( fCurAngle );
+                float fFloorProjY = fPlayerY + fFloorProjDistance * lu_sin( fCurAngle );
+
                 // calculate the sample coordinates for that world floor coordinate, by subtracting the
                 // integer part and only keeping the fractional part. Wrap around if the result < 0
                 float fSampleX = fFloorProjX - int(fFloorProjX); if (fSampleX < 0.0f) fSampleX += 1.0f;
@@ -659,10 +736,11 @@ public:
             auto get_roof_sample = [=]( int px, int py, float fHeight ) -> olc::Pixel {
                 // work out the distance to the location on the roof you are looking at through this pixel
                 // (the pixel is given since you know the x and y to draw to)
-                float fRoofProjDistance = (( (fPlayerH - fHeight ) / float( py - nHorizonHeight )) * fDistToProjPlane) / cos( fViewAngle * PI / 180.0f );
+                float fRoofProjDistance = (( (fPlayerH - fHeight ) / float( py - nHorizonHeight )) * fDistToProjPlane) / lu_cos( fViewAngle );
                 // calculate the world floor coordinate from the distance and the view angle + player angle
-                float fRoofProjX = fPlayerX + fRoofProjDistance * cos( fCurAngle * PI / 180.0f );
-                float fRoofProjY = fPlayerY + fRoofProjDistance * sin( fCurAngle * PI / 180.0f );
+                float fRoofProjX = fPlayerX + fRoofProjDistance * lu_cos( fCurAngle );
+                float fRoofProjY = fPlayerY + fRoofProjDistance * lu_sin( fCurAngle );
+
                 // calculate the sample coordinates for that world floor coordinate, by subtracting the
                 // integer part and only keeping the fractional part. Wrap around if the result < 0
                 float fSampleX = fRoofProjX - int(fRoofProjX); if (fSampleX < 0.0f) fSampleX += 1.0f;
@@ -671,7 +749,7 @@ public:
                 return ShadePixel( pRoofSprite->Sample( fSampleX, fSampleY ), fRoofProjDistance );
             };
 
-            // prepare the rendering for this screen slice by calculating the list of intersections in this direction
+            // prepare the rendering for this slice by calculating the list of intersections in this ray's direction
             std::vector<IntersectInfo> vColHitlist;
             float fColHeight = 1.0f;
             float fCurDistance = 0.0f;     // distance var needed for wall shading
@@ -680,7 +758,7 @@ public:
                 // at least one wall / block was hit. Extend the hit list with projected bottom / ceiling info
                 for (int i = 0; i < (int)vColHitlist.size(); i++) {
                     // make correction for the fish eye effect
-                    vColHitlist[i].fDistance *= cos( fViewAngle * PI / 180.0f );
+                    vColHitlist[i].fDistance *= lu_cos( fViewAngle );
                     CalculateWallBottomAndTop( vColHitlist[i].fDistance, nHorizonHeight, vColHitlist[i].fHeight, vColHitlist[i].ceil_front, vColHitlist[i].bottom_front );
                 }
                 // Extend the hit list with projected ceiling info for the back of the wall
@@ -701,15 +779,15 @@ public:
                 fColHeight = vColHitlist[0].fHeight;
                 fCurDistance = vColHitlist[0].fDistance;
 
-                nWallCeil  = vColHitlist[0].ceil_front;
-                nWallCeil2 = vColHitlist[0].ceil_back;
-                nWallFloor = vColHitlist[0].bottom_front;
+                nWallTop     = vColHitlist[0].ceil_front;
+                nWallTop2    = vColHitlist[0].ceil_back;
+                nWallBottom  = vColHitlist[0].bottom_front;
 
             } else {
                 // no wall was hit - set bottom and top value for wall at the horizon
-                nWallCeil  = nHorizonHeight;
-                nWallCeil2 = nWallCeil;
-                nWallFloor = nHorizonHeight;
+                nWallTop     = nHorizonHeight;
+                nWallTop2    = nWallTop;
+                nWallBottom  = nHorizonHeight;
                 fCurDistance = fMaxDistance;
             }
 
@@ -723,25 +801,29 @@ public:
             // if there are no hitpoints, it will be set to fMaxDistance
             fDepthBuffer[x] = fCurDistance;
 
-            // now render this slice using the info of the hit list
-            int nHitListIndex = 0;
-            // note that we are working upwards
-            for (int y = ScreenHeight() - 1; y >= 0; y--) {
-
 // constants for different types of rendering
 #define UNKNOWN_DRAWING 0
 #define   FLOOR_DRAWING 1
 #define    WALL_DRAWING 2
-#define    CEIL_DRAWING 3
+#define     SKY_DRAWING 3
 #define    ROOF_DRAWING 4
+
+            // now render this slice using the info of the hit list
+            int nHitListIndex = 0;
+            int nCacheMode = UNKNOWN_DRAWING;
+            float fSampleX;
+
+            // note that we are working upwards
+            for (int y = ScreenHeight() - 1; y >= 0; y--) {
 
                 // determine what type of segment is rendered: floor, wall, roof or ceiling
                 int nDrawMode = UNKNOWN_DRAWING;
-                if (y >= nWallFloor) {
-                    nDrawMode = (y <= nHorizonHeight) ? CEIL_DRAWING : FLOOR_DRAWING;
-                } else if (nWallFloor > y && y > nWallCeil) {
+
+                if (y >= nWallBottom) {
+                    nDrawMode = (y <= nHorizonHeight) ? SKY_DRAWING : FLOOR_DRAWING;
+                } else if (nWallBottom > y && y > nWallTop) {
                     nDrawMode = WALL_DRAWING;
-                } else if (nWallCeil >= y && y > nWallCeil2) {
+                } else if (nWallTop >= y && y > nWallTop2) {
                     nDrawMode = (fColHeight == 0.0f) ? FLOOR_DRAWING : ROOF_DRAWING;
                 } else {
                     while (nDrawMode == UNKNOWN_DRAWING) {
@@ -757,78 +839,88 @@ public:
                             nY_hit     = vColHitlist[ nHitListIndex ].nMapCoordY;
                             fColHeight = vColHitlist[ nHitListIndex ].fHeight;
                             fCurDistance = vColHitlist[ nHitListIndex ].fDistance;
+                            nWallTop     = vColHitlist[ nHitListIndex ].ceil_front;
+                            nWallTop2    = vColHitlist[ nHitListIndex ].ceil_back;
+                            nWallBottom  = vColHitlist[ nHitListIndex ].bottom_front;
 
-                            nWallCeil  = vColHitlist[ nHitListIndex ].ceil_front;
-                            nWallCeil2 = vColHitlist[ nHitListIndex ].ceil_back;
-                            nWallFloor = vColHitlist[ nHitListIndex ].bottom_front;
-
-                            if (y >= nWallFloor) {
-                                nDrawMode = (y <= nHorizonHeight) ? CEIL_DRAWING : FLOOR_DRAWING;
-                            } else if (nWallFloor > y && y > nWallCeil) {
+                            if (y >= nWallBottom) {
+                                nDrawMode = (y <= nHorizonHeight) ? SKY_DRAWING : FLOOR_DRAWING;
+                            } else if (nWallBottom > y && y > nWallTop) {
                                 nDrawMode = WALL_DRAWING;
-                            } else if (nWallCeil >= y && y > nWallCeil2) {
+                                nCacheMode = UNKNOWN_DRAWING;
+                            } else if (nWallTop >= y && y > nWallTop2) {
                                 nDrawMode = ROOF_DRAWING;
                             }
                         } else {
-                            nDrawMode = (y <= nHorizonHeight) ? CEIL_DRAWING : FLOOR_DRAWING;
+                            nDrawMode = (y <= nHorizonHeight) ? SKY_DRAWING : FLOOR_DRAWING;
                         }
                     }
                 }
 
                 // now we know what type of segment we're working on, render it
                 switch (nDrawMode) {
-                    case CEIL_DRAWING: {                         // ========== render ceiling ====================
+                    case SKY_DRAWING: {                         // ========== render ceiling ====================
                             if (RENDER_CEILING) {
-                                olc::Pixel auxSample = get_ceil_sample( x, y );
-                                Draw( x, y, auxSample );
+                                olc::Pixel ceilSample = get_ceil_sample( x, y );
+                                Draw( x, y, ceilSample );
                             }
                         }
                         break;
                     case FLOOR_DRAWING: {                        // ========== render floor   ====================
-                            olc::Pixel auxSample = get_floor_sample( x, y );
-                            Draw( x, y, auxSample );
+                            olc::Pixel floorSample = get_floor_sample( x, y );
+                            Draw( x, y, floorSample );
                         }
                         break;
                     case ROOF_DRAWING: {                        // ========== render roof   ====================
-                            olc::Pixel auxSample = get_roof_sample( x, y, fColHeight );
-                            Draw( x, y, auxSample );
+                            olc::Pixel roofSample = get_roof_sample( x, y, fColHeight );
+                            Draw( x, y, roofSample );
                         }
                         break;
                     case WALL_DRAWING: {                         // ========== render wall    ====================
+                            if (nCacheMode != WALL_DRAWING) {
+                                // this is the first pixel of this wall sub slice, so get the fSampleX value
+
+                                // the x sample coordinate takes more work to figure out. You need to check what side of the
+                                // block was hit
+                                float fBlockMidX = (float)nX_hit + 0.5f;   // location of middle of the cell that was hit
+                                float fBlockMidY = (float)nY_hit + 0.5f;
+                                // determine in what quadrant the hit location is wrt the block mid point
+                                float fTestAngle = atan2f((fY_hit - fBlockMidY), (fX_hit - fBlockMidX));
+
+                                // I tested several supposedly faster approximations for atan2f(), but the results are really not significant
+
+                                // The major bottleneck is that this analysis is done for each separate pixel in the slice:
+                                //   * possible improvement 1: determine the ranges within a slice so that you don't have to repeat the atan2f() call for each pixel
+                                //   * possible improvement 2: (after 1) render these slice parts as scaled decals
+
+                                if (-0.75f * PI <= fTestAngle && fTestAngle <  -0.25f * PI) fSampleX = fX_hit - (float)nX_hit;  // south side
+                                if (-0.25f * PI <= fTestAngle && fTestAngle <   0.25f * PI) fSampleX = fY_hit - (float)nY_hit;  // east  side
+                                if ( 0.25f * PI <= fTestAngle && fTestAngle <   0.75f * PI) fSampleX = fX_hit - (float)nX_hit;  // north side
+                                if (-0.75f * PI >  fTestAngle || fTestAngle >=  0.75f * PI) fSampleX = fY_hit - (float)nY_hit;  // west  side
+                            }
 
                             float fSampleY;
                             if (STRETCHED_TEXTURING) {
                                 // original sampling = stretched over full height of wall
                                 // the y sample coordinate depends only on the pixel y coord on the screen
                                 // in relation to the vertical space the wall is taking up
-                                fSampleY = float(y - nWallCeil) / float(nWallFloor - nWallCeil);
+                                fSampleY = float(y - nWallTop) / float(nWallBottom - nWallTop);
                             } else {
                                 // sophisticated sampling = sampling per unit block size
-                                float fBlockProjHeight = float( nWallFloor - nWallCeil ) / fColHeight;
-                                float fRelativeY = float( y - nWallCeil );
+                                float fBlockProjHeight = float( nWallBottom - nWallTop ) / fColHeight;
+                                float fRelativeY = float( y - nWallTop );
                                 while (fRelativeY > fBlockProjHeight)
                                     fRelativeY -= fBlockProjHeight;
                                 fSampleY = fRelativeY / fBlockProjHeight;
                             }
 
-                            // the x sample coordinate takes more work to figure out. You need to check what side of the
-                            // block was hit
-                            float fSampleX;
-                            float fBlockMidX = (float)nX_hit + 0.5f;   // location of middle of the cell that was hit
-                            float fBlockMidY = (float)nY_hit + 0.5f;
-                            // determine in what quadrant the hit location is wrt the block mid point
-                            float fTestAngle = atan2f((fY_hit - fBlockMidY), (fX_hit - fBlockMidX));
-                            if (-0.75f * PI <= fTestAngle && fTestAngle <  -0.25f * PI) fSampleX = fX_hit - (float)nX_hit;  // south side
-                            if (-0.25f * PI <= fTestAngle && fTestAngle <   0.25f * PI) fSampleX = fY_hit - (float)nY_hit;  // east  side
-                            if ( 0.25f * PI <= fTestAngle && fTestAngle <   0.75f * PI) fSampleX = fX_hit - (float)nX_hit;  // north side
-                            if (-0.75f * PI >  fTestAngle || fTestAngle >=  0.75f * PI) fSampleX = fY_hit - (float)nY_hit;  // west  side
-
                             // having both sample coordinates, get the sample, shade it and draw the pixel
-                            olc::Pixel auxSample = pWallSprite->Sample( fSampleX, fSampleY );
-                            Draw( x, y, ShadePixel( auxSample, fCurDistance ));
+                            olc::Pixel wallSample = pWallSprite->Sample( fSampleX, fSampleY );
+                            Draw( x, y, ShadePixel( wallSample, fCurDistance ));
                         }
                         break;
                 }
+                nCacheMode = nDrawMode;
             }
         }
 
@@ -841,8 +933,8 @@ public:
             float fDistanceFromPlayer = sqrtf( fVecX * fVecX + fVecY * fVecY );
             // calculate angle between vector from player to object, and players looking direction
             // to determine if object is in players field of view
-            float fEyeX = cosf( fPlayerA_rad );
-            float fEyeY = sinf( fPlayerA_rad );
+            float fEyeX = lu_cos( fPlayerA_deg );
+            float fEyeY = lu_sin( fPlayerA_deg );
             float fObjA = atan2f( fVecY, fVecX ) - atan2f( fEyeY, fEyeX );
             // "bodge" angle into range [ -PI, PI ]
             if (fObjA < - PI) fObjA += 2.0f * PI;
@@ -898,6 +990,11 @@ public:
         if (bDebugInfo) {
             RenderDebugInfo();
         }
+
+        return true;
+    }
+
+    bool OnUserDestroy() {
 
         return true;
     }

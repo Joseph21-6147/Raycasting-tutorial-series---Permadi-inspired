@@ -1,7 +1,7 @@
 // ELABORATING ON - Ray casting tutorial by Permadi
 // (starting with part 20 all code files are my own elaboration on the Permadi basis)
 //
-// Implementation of part 21 d - introducing sprites (billboards): looking and moving up and down
+// Implementation of part 21 f - introducing sprites (billboards): 2D depth buffer and randomly generated objects
 //
 // Joseph21, april 18, 2023
 //
@@ -11,11 +11,12 @@
 
 /* Short description
    -----------------
-   This implementation is a follow up of implementation part 21 c. See the description of that implementation as well (and check on
+   This implementation is a follow up of implementation part 21 e. See the description of that implementation as well (and check on
    the differences between that cpp file and this one).
 
-     * Took horizon height into account (instead of ScreenHeight() / 2.0f) where needed
-     * Compensated the height of the object proportionally to it's distance and the height of the player
+     * Extended the depth buffer from column based (1D) to full screen (2D)
+     * Enlarged the map, added some more objects and random initialisation of them.
+     * Hid quite some code behind the main() function - I consider this commodity code rn
 
    Have fun!
  */
@@ -67,65 +68,19 @@
 #define MINIMAP_TILE_SIZE     32
 #define MINIMAP_SCALE_FACTOR   0.2   // should be 0.2
 
-#define SIGNIFICANCE 3
-#define SIG_POW10    1000
+// ==============================/  Prototypes  /==============================
 
-// ==============================/  convenience functions for angles  /==============================
+float deg2rad( float fAngleDeg );
+float rad2deg( float fAngleRad );
 
-float deg2rad( float fAngleDeg ) { return fAngleDeg * PI / 180.0f; }
-float rad2deg( float fAngleRad ) { return fAngleRad / PI * 180.0f; }
-float deg_mod2pi( float fAngleDeg ) {
-    while (fAngleDeg <    0.0f) fAngleDeg += 360.0f;
-    while (fAngleDeg >= 360.0f) fAngleDeg -= 360.0f;
-    return fAngleDeg;
-}
-float rad_mod2pi( float fAngleRad ) {
-    while (fAngleRad <  0.0f     ) fAngleRad += 2.0f * PI;
-    while (fAngleRad >= 2.0f * PI) fAngleRad -= 2.0f * PI;
-    return fAngleRad;
-}
+float deg_mod2pi( float fAngleDeg );
+float rad_mod2pi( float fAngleRad );
 
-// ==============================/  lookup sine and cosine functions  /==============================
+void init_lu_sin_array();
+void init_lu_cos_array();
 
-float lu_sin_array[360 * SIG_POW10];
-float lu_cos_array[360 * SIG_POW10];
-
-void init_lu_sin_array() {
-    for (int i = 0; i < 360; i++) {
-        for (int j = 0; j < SIG_POW10; j++) {
-            int nIndex = i * SIG_POW10 + j;
-            float fArg_deg = float( nIndex ) / float( SIG_POW10 );
-            lu_sin_array[ nIndex ] = sinf( deg2rad( fArg_deg ));
-        }
-    }
-}
-
-void init_lu_cos_array() {
-    for (int i = 0; i < 360; i++) {
-        for (int j = 0; j < SIG_POW10; j++) {
-            int nIndex = i * SIG_POW10 + j;
-            float fArg_deg = float( nIndex ) / float( SIG_POW10 );
-            lu_cos_array[ nIndex ] = cosf( deg2rad( fArg_deg ));
-        }
-    }
-}
-
-float lu_sin( float fDegreeAngle ) {
-    fDegreeAngle = deg_mod2pi( fDegreeAngle );
-    int nWholeNr = int( fDegreeAngle );
-    int nRemainder = int( (fDegreeAngle - nWholeNr) * float( SIG_POW10 ));
-    int nIndex = nWholeNr * SIG_POW10 + nRemainder;
-    return lu_sin_array[ nIndex ];
-}
-
-float lu_cos( float fDegreeAngle ) {
-    fDegreeAngle = deg_mod2pi( fDegreeAngle );
-    int nWholeNr = int( fDegreeAngle );
-    int nRemainder = int( (fDegreeAngle - nWholeNr) * float( SIG_POW10 ));
-    int nIndex = nWholeNr * SIG_POW10 + nRemainder;
-    return lu_cos_array[ nIndex ];
-}
-
+float lu_sin( float fDegreeAngle );
+float lu_cos( float fDegreeAngle );
 
 // ==============================/  Start of PGE derived class   /==============================
 
@@ -142,8 +97,8 @@ private:
     // definition of the map
     std::string sMap;     // contains chars that define the type of block per map location
     float      *fMap;     // contains floats that represent the height per block
-    int nMapX = 32;
-    int nMapY = 32;
+    int nMapX = 48;
+    int nMapY = 48;
 
     // max visible distance - use length of map diagonal to overlook whole map
     float fMaxDistance = sqrt( nMapX * nMapX + nMapY * nMapY );
@@ -166,7 +121,9 @@ private:
     olc::Sprite *pCeilSprite  = nullptr;
     olc::Sprite *pRoofSprite  = nullptr;
 
-    olc::Sprite *pObjectSprite = nullptr;
+#define MAX_OBJ_SPRITES 14
+
+    olc::Sprite *pObjectSprite[MAX_OBJ_SPRITES] = { nullptr };
 
     bool bMouseControl = MOUSE_CONTROL;     // toggle on mouse control (trigger key M)
 
@@ -213,40 +170,56 @@ public:
 
         // tile layout of the map - must be of size nMapX x nMapY
 
-        //            0         1         2         3
-        //            01234567890123456789012345678901
-        sMap.append( "............###................." );
-        sMap.append( ".*#########################....#" );
-        sMap.append( ".#............................##" );
-        sMap.append( ".#..............Q.H.T.#.......@." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#...................Q........@." );
-        sMap.append( ".#...................H........@." );
-        sMap.append( ".#...................T........@." );
-        sMap.append( ".#...................#........@." );
-        sMap.append( ".#...................T........@." );
-        sMap.append( ".#.......*#.#*.......H........@." );
-        sMap.append( ".#...@...#...#.......Q........#." );
-        sMap.append( ".#.......#...#................@." );
-        sMap.append( ".#...*....@@@.................#." );
-        sMap.append( ".#............................@." );
-        sMap.append( ".#...-..........1.............#." );
-        sMap.append( ".#...............2............@." );
-        sMap.append( ".#...+............3...........#." );
-        sMap.append( ".#.................4..........@." );
-        sMap.append( ".#...=..............5.........#." );
-        sMap.append( ".#.........1234......6........@." );
-        sMap.append( ".#............5.......7.......#." );
-        sMap.append( ".#.........9876........8......@." );
-        sMap.append( ".#......................9.....@." );
-        sMap.append( ".#.......................#....@." );
-        sMap.append( "..............................@." );
-        sMap.append( "..#@*-+++===#@*.*@#===+++---***." );
-        sMap.append( "..............#.#..............." );
-        sMap.append( "................................" );
-        sMap.append( "................................" );
-        sMap.append( "................................" );
+        //            0         1         2         3         4         5
+        //            0123456789012345678901234567890123456789012345678901
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "....................###........................." );
+        sMap.append( ".........*#########################............." );
+        sMap.append( ".........#............................#........." );
+        sMap.append( ".........#..............Q.H.T.#.......@........." );
+        sMap.append( ".........#............................@........." );
+        sMap.append( ".........#............................@........." );
+        sMap.append( ".........#...................Q........@........." );
+        sMap.append( ".........#...................H........@........." );
+        sMap.append( ".........#...................T........@........." );
+        sMap.append( ".........#...................#........@........." );
+        sMap.append( ".........#...................T........@........." );
+        sMap.append( ".........#.......*#.#*.......H........@........." );
+        sMap.append( ".........#...@...#...#.......Q........#........." );
+        sMap.append( ".........#.......#...#................@........." );
+        sMap.append( ".........#...*....@@@.................#........." );
+        sMap.append( ".........#............................@........." );
+        sMap.append( ".........#...-..........1.............#........." );
+        sMap.append( ".........#...............2............@........." );
+        sMap.append( ".........#...+............3...........#........." );
+        sMap.append( ".........#.................4..........@........." );
+        sMap.append( ".........#...=..............5.........#........." );
+        sMap.append( ".........#.........1234......6........@........." );
+        sMap.append( ".........#............5.......7.......#........." );
+        sMap.append( ".........#.........9876........8......@........." );
+        sMap.append( ".........#......................9.....@........." );
+        sMap.append( ".........#.......................#....@........." );
+        sMap.append( "......................................@........." );
+        sMap.append( "..........#@*-+++===#@*.*@#===+++---***........." );
+        sMap.append( "......................#.#......................." );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
+        sMap.append( "................................................" );
 
         // Initialise fMap as a 2d array of floats, having the same size as sMap, and containing the height per cell.
         // NOTE - if MULTIPLE_LEVELS is false, the fMap will contain no values > 1
@@ -297,26 +270,56 @@ public:
             return tmp;
         };
         // load sprites for texturing walls, floor and ceiling
-        std::string sSpritePath = "../sprites/";
-        pWallSprite   = load_sprite_file( sSpritePath +    "new wall_brd.png" ); bSuccess &= (pWallSprite   != nullptr);
-        pFloorSprite  = load_sprite_file( sSpritePath +   "grass_texture.png" ); bSuccess &= (pFloorSprite  != nullptr);
-        pCeilSprite   = load_sprite_file( sSpritePath + "ceiling_texture.png" ); bSuccess &= (pCeilSprite   != nullptr);
-        pRoofSprite   = load_sprite_file( sSpritePath +    "roof texture.png" ); bSuccess &= (pRoofSprite   != nullptr);
+        std::string sSpritePath1 = "../sprites/";
+        pWallSprite   = load_sprite_file( sSpritePath1 +    "new wall_brd.png" ); bSuccess &= (pWallSprite   != nullptr);
+        pFloorSprite  = load_sprite_file( sSpritePath1 +   "grass_texture.png" ); bSuccess &= (pFloorSprite  != nullptr);
+        pCeilSprite   = load_sprite_file( sSpritePath1 + "ceiling_texture.png" ); bSuccess &= (pCeilSprite   != nullptr);
+        pRoofSprite   = load_sprite_file( sSpritePath1 +    "roof texture.png" ); bSuccess &= (pRoofSprite   != nullptr);
 
         // load sprites for rendering objects
-        pObjectSprite = load_sprite_file(              "tree 100x100.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        std::string sSpritePath2 = "sprites/";
+        pObjectSprite[ 0] = load_sprite_file( sSpritePath2 + "elf-girl_stationary-front.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 1] = load_sprite_file( sSpritePath2 +            "bush_object_01.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 2] = load_sprite_file( sSpritePath2 +            "bush_object_02.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 3] = load_sprite_file( sSpritePath2 +            "bush_object_03.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 4] = load_sprite_file( sSpritePath2 +            "bush_object_04.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 5] = load_sprite_file( sSpritePath2 +              "tree 100x100.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 6] = load_sprite_file( sSpritePath2 +            "tree_object_01.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 7] = load_sprite_file( sSpritePath2 +            "tree_object_02.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 8] = load_sprite_file( sSpritePath2 +            "tree_object_03.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[ 9] = load_sprite_file( sSpritePath2 +            "tree_object_04.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[10] = load_sprite_file( sSpritePath2 +            "tree_object_05.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[11] = load_sprite_file( sSpritePath2 +            "tree_object_06.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[12] = load_sprite_file( sSpritePath2 +            "tree_object_07.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
+        pObjectSprite[13] = load_sprite_file( sSpritePath2 +            "tree_object_08.rbg.png" ); bSuccess &= (pObjectSprite != nullptr);
 
         // Initialize depth buffer
-        fDepthBuffer = new float[ ScreenWidth() ];
+        fDepthBuffer = new float[ ScreenWidth() * ScreenHeight() ];
 
-        // populate object list with static initializer list
-        vListObjects = {
-            { 10.5f,  4.5f, 1.2f, pObjectSprite, -1.0f, 0.0f },
-            { 14.5f,  5.5f, 1.0f, pObjectSprite, -1.0f, 0.0f },
-            { 14.5f,  6.5f, 1.5f, pObjectSprite, -1.0f, 0.0f },
-            { 14.5f,  7.5f, 2.0f, pObjectSprite, -1.0f, 0.0f },
-            {  6.5f,  9.5f, 3.0f, pObjectSprite, -1.0f, 0.0f },
-        };
+
+        // populate object list with randomly chosen, scaled and placed objects
+        for (int i = 0; i < 100; i++) {
+            int nRandX, nRandY;
+            bool bFoundEmpty = false;
+            do {
+                nRandX = rand() % nMapX;
+                nRandY = rand() % nMapY;
+
+                bFoundEmpty = fMap[ nRandY * nMapX + nRandX ] == 0.0f;
+            } while (!bFoundEmpty);
+            int nRandObj = rand() % MAX_OBJ_SPRITES;
+            int nRandSize;
+            if (nRandObj == 0) {
+                nRandSize = rand() %  5 + 5;
+            } else if (nRandObj < 5) {
+                nRandSize = rand() % 10 + 5;
+            } else {
+                nRandSize = rand() % 40 + 10;
+            }
+
+            sObject tmpObj = { float( nRandX ) + 0.5f, float( nRandY ) + 0.5f, float( nRandSize / 10.0f ), pObjectSprite[ nRandObj ], -1.0f, 0.0f };
+            vListObjects.push_back( tmpObj );
+        }
 
         return bSuccess;
     }
@@ -459,139 +462,38 @@ public:
         return (vHitList.size() > 0);
     }
 
-// ==============================/   Mini map rendering stuff   /==============================
-
-    // function to render the mini map on the screen
-    void RenderMapGrid() {
-        // fill background for minimap
-        float fMMFactor = MINIMAP_SCALE_FACTOR * MINIMAP_TILE_SIZE;
-        FillRect( 0, 0, nMapX * fMMFactor, nMapY * fMMFactor, olc::VERY_DARK_GREEN );
-        // draw each tile
-        for (int y = 0; y < nMapY; y++) {
-            for (int x = 0; x < nMapX; x++) {
-                // colour different for different heights
-                olc::Pixel p;
-                bool bBorderFlag = true;
-                if (fMap[ y * nMapX + x ] == 0.0f) {
-                    p = olc::VERY_DARK_GREEN;   // don't visibly render
-                    bBorderFlag = false;
-                } else if (fMap[ y * nMapX + x ] <  1.0f) {
-                    p = olc::PixelF( fMap[ y * nMapX + x], 0.0f, 0.0f );    // height < 1.0f = shades of red
-                } else {
-                    float fColFactor = std::min( fMap[ y * nMapX + x] / 4.0f + 0.5f, 1.0f );    // heights > 1.0f = shades of blue
-                    p = olc::PixelF( 0.0f, 0.0f, fColFactor );
-                }
-                // render this tile
-                FillRect( x * fMMFactor + 1, y * fMMFactor + 1, fMMFactor - 1, fMMFactor - 1, p );
-                if (bBorderFlag) {
-                    p = olc::WHITE;
-                    DrawRect( x * fMMFactor, y * fMMFactor, fMMFactor, fMMFactor, p);
-                }
-            }
-        }
-    }
-
-    // function to render the player in the mini map on the screen
-    void RenderMapPlayer() {
-        float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
-        olc::Pixel p = olc::YELLOW;
-        float px = fPlayerX * fMMFactor;
-        float py = fPlayerY * fMMFactor;
-        float pr = 0.6f     * fMMFactor;
-        FillCircle( px, py, pr, p );
-        float dx = lu_cos( fPlayerA_deg );
-        float dy = lu_sin( fPlayerA_deg );
-        float pdx = dx * 2.0f * fMMFactor;
-        float pdy = dy * 2.0f * fMMFactor;
-        DrawLine( px, py, px + pdx, py + pdy, p );
-    }
-
-    // function to render the rays in the mini map on the screen
-    void RenderMapRays() {
-        float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
-        for (auto &elt : vRayList) {
-            DrawLine(
-                fPlayerX * fMMFactor,
-                fPlayerY * fMMFactor,
-                elt.x * fMMFactor,
-                elt.y * fMMFactor,
-                olc::GREEN
-            );
-        }
-    }
-
-    // function to render all the objects in the mini map on the screen
-    void RenderMapObjects() {
-        float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
-        olc::Pixel p = olc::RED;
-        for (auto &elt : vListObjects) {
-            float px = elt.x * fMMFactor;
-            float py = elt.y * fMMFactor;
-            float pr = 0.4f  * fMMFactor;
-            FillCircle( px, py, pr, p );
-        }
-    }
-
-    // function to render debug info in a separate hud on the screen
-    void RenderDebugInfo() {
-        int nStartX = ScreenWidth() - 200;
-        int nStartY =  10;
-        // render background pane for debug info
-        FillRect( nStartX, nStartY, 195, 85, olc::VERY_DARK_GREEN );
-        // output player and rendering values for debugging
-        DrawString( nStartX + 5, nStartY +  5, "fPlayerX = "   + std::to_string( fPlayerX             ), TEXT_COLOUR );
-        DrawString( nStartX + 5, nStartY + 15, "fPlayerY = "   + std::to_string( fPlayerY             ), TEXT_COLOUR );
-        DrawString( nStartX + 5, nStartY + 25, "fPlayerA = "   + std::to_string( fPlayerA_deg         ), TEXT_COLOUR );
-        DrawString( nStartX + 5, nStartY + 35, "fPlayerH = "   + std::to_string( fPlayerH             ), TEXT_COLOUR );
-        DrawString( nStartX + 5, nStartY + 45, "fLookUp  = "   + std::to_string( fLookUp              ), TEXT_COLOUR );
-        DrawString( nStartX + 5, nStartY + 65, "Intensity  = " + std::to_string( fObjectIntensity     ), TEXT_COLOUR );
-        DrawString( nStartX + 5, nStartY + 75, "Multiplier = " + std::to_string( fIntensityMultiplier ), TEXT_COLOUR );
-    }
-
     // Returns the projected bottom and top of a wall slice as y screen coordinates.
     // The wall is at fCorrectedDistToWall from eye point, nHorHight is the height of the horizon
     // and fWallHeight as the height of the wall (in blocks) according to the map
     void CalculateWallBottomAndTop( float fCorrectedDistToWall, int nHorHeight, float fWallHeight, int &nWallTop, int &nWallBottom ) {
         // calculate slice height for a *unit height* wall
         int nSliceHeight = int((1.0f / fCorrectedDistToWall) * fDistToProjPlane);
-        nWallTop    = nHorHeight - (nSliceHeight * (1.0f - fPlayerH)) - (fWallHeight - 1) * nSliceHeight;
+        nWallTop    = nHorHeight - (nSliceHeight * (1.0f - fPlayerH)) - (fWallHeight - 1.0f) * nSliceHeight;
         nWallBottom = nHorHeight + (nSliceHeight *         fPlayerH );
     }
 
-	// experimental function for mouse control
-    bool GetMouseSteering( float &fHorPerc, float &fVerPerc ) {
-        // grab mouse coordinates
-        int nMouseX = GetMouseX();
-        int nMouseY = GetMouseY();
+// ==============================/   Mini map rendering prototypes   /==============================
 
-        // express mouse coords in -1.0f, 1.0f range
-        float fRangeX = (nMouseX - (ScreenWidth()  / 2)) / float(ScreenWidth()  / 2);
-        float fRangeY = (nMouseY - (ScreenHeight() / 2)) / float(ScreenHeight() / 2);
+    void RenderMapGrid();        // function to render the mini map on the screen
+    void RenderMapPlayer();      // function to render the player in the mini map on the screen
+    void RenderMapRays();        // function to render the rays in the mini map on the screen
+    void RenderMapObjects();     // function to render all the objects in the mini map on the screen
+    void RenderDebugInfo();      // function to render debug info in a separate hud on the screen
 
-        // the screen width / height is mapped onto [ -1.0, +1.0 ] range
-        // the range [ -0.2f, +0.2f ] is the stable (inactive) zone
-        fHorPerc = 0.0f;
-        fVerPerc = 0.0f;
-        // if outside the stable zone, map to [ -1.0f, +1.0f ] again
-        if (fRangeX < -0.2f) fHorPerc = (fRangeX + 0.2f) * ( 1.0f / 0.8f );
-        if (fRangeX >  0.2f) fHorPerc = (fRangeX - 0.2f) * ( 1.0f / 0.8f );
-        if (fRangeY < -0.2f) fVerPerc = (fRangeY + 0.2f) * ( 1.0f / 0.8f );
-        if (fRangeY >  0.2f) fVerPerc = (fRangeY - 0.2f) * ( 1.0f / 0.8f );
+    bool GetMouseSteering( float &fHorPerc, float &fVerPerc );	    // experimental function for mouse control
+    olc::Pixel ShadePixel( const olc::Pixel &p, float fDistance );	// Shade the pixel p using fDistance as a factor in the shade formula
 
-        return (fHorPerc != 0.0f || fVerPerc != 0.0f);
-    }
 
-	// Shade the pixel p using fDistance as a factor in the shade formula
-    olc::Pixel ShadePixel( const olc::Pixel &p, float fDistance ) {
-        if (RENDER_SHADED) {
-            float fShadeFactor = std::max( SHADE_FACTOR_MIN, std::min( SHADE_FACTOR_MAX, fObjectIntensity * ( fIntensityMultiplier /  fDistance )));
-            return p * fShadeFactor;
-        } else
-            return p;
-    }
+    void DrawDepth( float fDepth, int x, int y, olc::Pixel col ) {
 
-    olc::Pixel ShadePixel_new( const olc::Pixel &org_pix, float fDistance, const olc::Pixel &shade_pix = SHADE_COLOUR, float fIntensity = 1.5f ) {
-        return PixelLerp( org_pix, shade_pix, std::min( 1.0f, fIntensity * fDistance / fMaxDistance ));
+        if (x >= 0 && x < ScreenWidth() &&
+            y >= 0 && y < ScreenHeight()) {
+
+            if (fDepth <= fDepthBuffer[ y * ScreenWidth() + x ]) {
+                fDepthBuffer[ y * ScreenWidth() + x ] = fDepth;
+                Draw( x, y, col );
+            }
+        }
     }
 
     bool OnUserUpdate( float fElapsedTime ) override {
@@ -786,13 +688,12 @@ public:
                 }
 
                 // get the info from first hit point
-                fX_hit     = vColHitlist[0].fHitX;
-                fY_hit     = vColHitlist[0].fHitY;
-                nX_hit     = vColHitlist[0].nMapCoordX;
-                nY_hit     = vColHitlist[0].nMapCoordY;
-                fColHeight = vColHitlist[0].fHeight;
+                fX_hit       = vColHitlist[0].fHitX;
+                fY_hit       = vColHitlist[0].fHitY;
+                nX_hit       = vColHitlist[0].nMapCoordX;
+                nY_hit       = vColHitlist[0].nMapCoordY;
+                fColHeight   = vColHitlist[0].fHeight;
                 fCurDistance = vColHitlist[0].fDistance;
-
                 nWallTop     = vColHitlist[0].ceil_front;
                 nWallTop2    = vColHitlist[0].ceil_back;
                 nWallBottom  = vColHitlist[0].bottom_front;
@@ -813,7 +714,9 @@ public:
 
             // Update depth buffer - note that this is the distance to the *first* hitpoint
             // if there are no hitpoints, it will be set to fMaxDistance
-            fDepthBuffer[x] = fCurDistance;
+            for (int y = 0; y < ScreenHeight(); y++) {
+                fDepthBuffer[ y * ScreenWidth() + x ] = fMaxDistance;
+            }
 
 // constants for different types of rendering
 #define UNKNOWN_DRAWING 0
@@ -847,11 +750,11 @@ public:
                             nHitListIndex += 1;
 
                             // get the info from next hit point
-                            fX_hit     = vColHitlist[ nHitListIndex ].fHitX;
-                            fY_hit     = vColHitlist[ nHitListIndex ].fHitY;
-                            nX_hit     = vColHitlist[ nHitListIndex ].nMapCoordX;
-                            nY_hit     = vColHitlist[ nHitListIndex ].nMapCoordY;
-                            fColHeight = vColHitlist[ nHitListIndex ].fHeight;
+                            fX_hit       = vColHitlist[ nHitListIndex ].fHitX;
+                            fY_hit       = vColHitlist[ nHitListIndex ].fHitY;
+                            nX_hit       = vColHitlist[ nHitListIndex ].nMapCoordX;
+                            nY_hit       = vColHitlist[ nHitListIndex ].nMapCoordY;
+                            fColHeight   = vColHitlist[ nHitListIndex ].fHeight;
                             fCurDistance = vColHitlist[ nHitListIndex ].fDistance;
                             nWallTop     = vColHitlist[ nHitListIndex ].ceil_front;
                             nWallTop2    = vColHitlist[ nHitListIndex ].ceil_back;
@@ -876,18 +779,18 @@ public:
                     case SKY_DRAWING: {                         // ========== render ceiling ====================
                             if (RENDER_CEILING) {
                                 olc::Pixel ceilSample = get_ceil_sample( x, y );
-                                Draw( x, y, ceilSample );
+                                DrawDepth( fCurDistance, x, y, ceilSample );
                             }
                         }
                         break;
                     case FLOOR_DRAWING: {                        // ========== render floor   ====================
                             olc::Pixel floorSample = get_floor_sample( x, y );
-                            Draw( x, y, floorSample );
+                            DrawDepth( fMaxDistance, x, y, floorSample );
                         }
                         break;
                     case ROOF_DRAWING: {                        // ========== render roof   ====================
                             olc::Pixel roofSample = get_roof_sample( x, y, fColHeight );
-                            Draw( x, y, roofSample );
+                            DrawDepth( fCurDistance, x, y, roofSample );
                         }
                         break;
                     case WALL_DRAWING: {                         // ========== render wall    ====================
@@ -904,6 +807,9 @@ public:
                                 // I tested several supposedly faster approximations for atan2f(), but the results are really not significant
 
                                 // The major bottleneck is that this analysis is done for each separate pixel in the slice:
+                                // for now I solved this by caching the drawmode and checking if was a wall previous
+                                // (note that I have to temper with the cached drawmode when multiple wall segments are behind each other)
+
                                 //   * possible improvement 1: determine the ranges within a slice so that you don't have to repeat the atan2f() call for each pixel
                                 //   * possible improvement 2: (after 1) render these slice parts as scaled decals
 
@@ -930,7 +836,7 @@ public:
 
                             // having both sample coordinates, get the sample, shade it and draw the pixel
                             olc::Pixel wallSample = pWallSprite->Sample( fSampleX, fSampleY );
-                            Draw( x, y, ShadePixel( wallSample, fCurDistance ));
+                            DrawDepth( fCurDistance, x, y, ShadePixel( wallSample, fCurDistance ));
                         }
                         break;
                 }
@@ -970,9 +876,9 @@ public:
             // can object be seen?
             float fObjDist = object.distance;
             float fObjA = object.angle;
-            // determine whether object is in field of view (slightly larger to prevent objects being not rendered at
+            // determine whether object is in field of view (a bit larger to prevent objects being not rendered at
             // screen boundaries)
-            bool bInFOV = fabs( fObjA ) < fPlayerFoV_rad / 1.6f;
+            bool bInFOV = fabs( fObjA ) < fPlayerFoV_rad / 1.2f;
 
             // render object only when within Field of View, and within visible distance.
             // the check on proximity is to prevent asymptotic errors when this distance becomes very small
@@ -992,7 +898,7 @@ public:
                 // and adapt all the scaling into the ceiling value
                 float fScalingDifference = fObjCeilingNormalized - fObjCeilingScaled;
                 float fObjCeiling = fObjCeilingNormalized - 2 * fScalingDifference;
-                float fObjFloor = float(nHorizonHeight) + fObjHlveSliceHeight;
+                float fObjFloor   = float(nHorizonHeight) + fObjHlveSliceHeight;
 
                 // compensate object projection heights for elevation of the player
                 fObjCeiling += fCompensatePlayerHeight * fObjHlveSliceHeight * 2.0f;
@@ -1017,9 +923,8 @@ public:
                             float fSampleY = fy / fObjHeight;
                             // sample the pixel and draw it
                             olc::Pixel pSample = object.sprite->Sample( fSampleX, fSampleY );
-                            if (pSample != olc::BLANK && fDepthBuffer[nObjColumn] >= fObjDist) {
-                                Draw( nObjColumn, fObjCeiling + fy, pSample );
-                                fDepthBuffer[nObjColumn] = fObjDist;
+                            if (pSample != olc::BLANK) {
+                                DrawDepth( fObjDist, nObjColumn, fObjCeiling + fy, ShadePixel( pSample, fObjDist ));
                             }
                         }
                     }
@@ -1058,3 +963,187 @@ int main()
 
 	return 0;
 }
+
+
+// ==============================/   put all the bloat behind main()   /==============================
+
+// ==============================/   Mini map rendering stuff   /==============================
+
+// function to render the mini map on the screen
+void MyRayCaster::RenderMapGrid() {
+    // fill background for minimap
+    float fMMFactor = MINIMAP_SCALE_FACTOR * MINIMAP_TILE_SIZE;
+    FillRect( 0, 0, nMapX * fMMFactor, nMapY * fMMFactor, olc::VERY_DARK_GREEN );
+    // draw each tile
+    for (int y = 0; y < nMapY; y++) {
+        for (int x = 0; x < nMapX; x++) {
+            // colour different for different heights
+            olc::Pixel p;
+            bool bBorderFlag = true;
+            if (fMap[ y * nMapX + x ] == 0.0f) {
+                p = olc::VERY_DARK_GREEN;   // don't visibly render
+                bBorderFlag = false;
+            } else if (fMap[ y * nMapX + x ] <  1.0f) {
+                p = olc::PixelF( fMap[ y * nMapX + x], 0.0f, 0.0f );    // height < 1.0f = shades of red
+            } else {
+                float fColFactor = std::min( fMap[ y * nMapX + x] / 4.0f + 0.5f, 1.0f );    // heights > 1.0f = shades of blue
+                p = olc::PixelF( 0.0f, 0.0f, fColFactor );
+            }
+            // render this tile
+            FillRect( x * fMMFactor + 1, y * fMMFactor + 1, fMMFactor - 1, fMMFactor - 1, p );
+            if (bBorderFlag) {
+                p = olc::WHITE;
+                DrawRect( x * fMMFactor, y * fMMFactor, fMMFactor, fMMFactor, p);
+            }
+        }
+    }
+}
+
+// function to render the player in the mini map on the screen
+void MyRayCaster::RenderMapPlayer() {
+    float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
+    olc::Pixel p = olc::YELLOW;
+    float px = fPlayerX * fMMFactor;
+    float py = fPlayerY * fMMFactor;
+    float pr = 0.6f     * fMMFactor;
+    FillCircle( px, py, pr, p );
+    float dx = lu_cos( fPlayerA_deg );
+    float dy = lu_sin( fPlayerA_deg );
+    float pdx = dx * 2.0f * fMMFactor;
+    float pdy = dy * 2.0f * fMMFactor;
+    DrawLine( px, py, px + pdx, py + pdy, p );
+}
+
+// function to render the rays in the mini map on the screen
+void MyRayCaster::RenderMapRays() {
+    float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
+    for (auto &elt : vRayList) {
+        DrawLine(
+            fPlayerX * fMMFactor,
+            fPlayerY * fMMFactor,
+            elt.x * fMMFactor,
+            elt.y * fMMFactor,
+            olc::GREEN
+        );
+    }
+}
+
+// function to render all the objects in the mini map on the screen
+void MyRayCaster::RenderMapObjects() {
+    float fMMFactor = MINIMAP_TILE_SIZE * MINIMAP_SCALE_FACTOR;
+    olc::Pixel p = olc::RED;
+    for (auto &elt : vListObjects) {
+        float px = elt.x * fMMFactor;
+        float py = elt.y * fMMFactor;
+        float pr = 0.4f  * fMMFactor;
+        FillCircle( px, py, pr, p );
+    }
+}
+
+// function to render debug info in a separate hud on the screen
+void MyRayCaster::RenderDebugInfo() {
+    int nStartX = ScreenWidth() - 200;
+    int nStartY =  10;
+    // render background pane for debug info
+    FillRect( nStartX, nStartY, 195, 85, olc::VERY_DARK_GREEN );
+    // output player and rendering values for debugging
+    DrawString( nStartX + 5, nStartY +  5, "fPlayerX = "   + std::to_string( fPlayerX             ), TEXT_COLOUR );
+    DrawString( nStartX + 5, nStartY + 15, "fPlayerY = "   + std::to_string( fPlayerY             ), TEXT_COLOUR );
+    DrawString( nStartX + 5, nStartY + 25, "fPlayerA = "   + std::to_string( fPlayerA_deg         ), TEXT_COLOUR );
+    DrawString( nStartX + 5, nStartY + 35, "fPlayerH = "   + std::to_string( fPlayerH             ), TEXT_COLOUR );
+    DrawString( nStartX + 5, nStartY + 45, "fLookUp  = "   + std::to_string( fLookUp              ), TEXT_COLOUR );
+    DrawString( nStartX + 5, nStartY + 65, "Intensity  = " + std::to_string( fObjectIntensity     ), TEXT_COLOUR );
+    DrawString( nStartX + 5, nStartY + 75, "Multiplier = " + std::to_string( fIntensityMultiplier ), TEXT_COLOUR );
+}
+
+// experimental function for mouse control
+bool MyRayCaster::GetMouseSteering( float &fHorPerc, float &fVerPerc ) {
+    // grab mouse coordinates
+    int nMouseX = GetMouseX();
+    int nMouseY = GetMouseY();
+
+    // express mouse coords in -1.0f, 1.0f range
+    float fRangeX = (nMouseX - (ScreenWidth()  / 2)) / float(ScreenWidth()  / 2);
+    float fRangeY = (nMouseY - (ScreenHeight() / 2)) / float(ScreenHeight() / 2);
+
+    // the screen width / height is mapped onto [ -1.0, +1.0 ] range
+    // the range [ -0.2f, +0.2f ] is the stable (inactive) zone
+    fHorPerc = 0.0f;
+    fVerPerc = 0.0f;
+    // if outside the stable zone, map to [ -1.0f, +1.0f ] again
+    if (fRangeX < -0.2f) fHorPerc = (fRangeX + 0.2f) * ( 1.0f / 0.8f );
+    if (fRangeX >  0.2f) fHorPerc = (fRangeX - 0.2f) * ( 1.0f / 0.8f );
+    if (fRangeY < -0.2f) fVerPerc = (fRangeY + 0.2f) * ( 1.0f / 0.8f );
+    if (fRangeY >  0.2f) fVerPerc = (fRangeY - 0.2f) * ( 1.0f / 0.8f );
+
+    return (fHorPerc != 0.0f || fVerPerc != 0.0f);
+}
+
+// Shade the pixel p using fDistance as a factor in the shade formula
+olc::Pixel MyRayCaster::ShadePixel( const olc::Pixel &p, float fDistance ) {
+    if (RENDER_SHADED) {
+        float fShadeFactor = std::max( SHADE_FACTOR_MIN, std::min( SHADE_FACTOR_MAX, fObjectIntensity * ( fIntensityMultiplier /  fDistance )));
+        return p * fShadeFactor;
+    } else
+        return p;
+}
+
+// ==============================/  convenience functions for angles  /==============================
+
+#define SIGNIFICANCE 3      // float angle is rounded at three decimal points
+#define SIG_POW10    1000
+
+float deg2rad( float fAngleDeg ) { return fAngleDeg * PI / 180.0f; }
+float rad2deg( float fAngleRad ) { return fAngleRad / PI * 180.0f; }
+float deg_mod2pi( float fAngleDeg ) {
+    while (fAngleDeg <    0.0f) fAngleDeg += 360.0f;
+    while (fAngleDeg >= 360.0f) fAngleDeg -= 360.0f;
+    return fAngleDeg;
+}
+float rad_mod2pi( float fAngleRad ) {
+    while (fAngleRad <  0.0f     ) fAngleRad += 2.0f * PI;
+    while (fAngleRad >= 2.0f * PI) fAngleRad -= 2.0f * PI;
+    return fAngleRad;
+}
+
+// ==============================/  lookup sine and cosine functions  /==============================
+
+float lu_sin_array[360 * SIG_POW10];
+float lu_cos_array[360 * SIG_POW10];
+
+void init_lu_sin_array() {
+    for (int i = 0; i < 360; i++) {
+        for (int j = 0; j < SIG_POW10; j++) {
+            int nIndex = i * SIG_POW10 + j;
+            float fArg_deg = float( nIndex ) / float( SIG_POW10 );
+            lu_sin_array[ nIndex ] = sinf( deg2rad( fArg_deg ));
+        }
+    }
+}
+
+void init_lu_cos_array() {
+    for (int i = 0; i < 360; i++) {
+        for (int j = 0; j < SIG_POW10; j++) {
+            int nIndex = i * SIG_POW10 + j;
+            float fArg_deg = float( nIndex ) / float( SIG_POW10 );
+            lu_cos_array[ nIndex ] = cosf( deg2rad( fArg_deg ));
+        }
+    }
+}
+
+float lu_sin( float fDegreeAngle ) {
+    fDegreeAngle = deg_mod2pi( fDegreeAngle );
+    int nWholeNr = int( fDegreeAngle );
+    int nRemainder = int( (fDegreeAngle - nWholeNr) * float( SIG_POW10 ));
+    int nIndex = nWholeNr * SIG_POW10 + nRemainder;
+    return lu_sin_array[ nIndex ];
+}
+
+float lu_cos( float fDegreeAngle ) {
+    fDegreeAngle = deg_mod2pi( fDegreeAngle );
+    int nWholeNr = int( fDegreeAngle );
+    int nRemainder = int( (fDegreeAngle - nWholeNr) * float( SIG_POW10 ));
+    int nIndex = nWholeNr * SIG_POW10 + nRemainder;
+    return lu_cos_array[ nIndex ];
+}
+
