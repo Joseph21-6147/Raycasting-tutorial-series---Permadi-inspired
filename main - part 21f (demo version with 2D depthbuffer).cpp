@@ -3,7 +3,7 @@
 //
 // Implementation of part 21 f - introducing sprites (billboards): 2D depth buffer and randomly generated objects
 //
-// Joseph21, april 18, 2023
+// Joseph21, april 19, 2023
 //
 // Dependencies:
 //   *  olcPixelGameEngine.h - (olc::PixelGameEngine header file) by JavidX9 (see: https://github.com/OneLoneCoder/olcPixelGameEngine)
@@ -501,9 +501,15 @@ public:
         // step 1 - user input
         // ===================
 
+        // For all movements and rotation you can speed up by keeping SHIFT pressed
+        // or speed down by keeping CTRL pressed. This also affects shading/lighting
+        float fSpeedUp = 1.0f;
+        if (GetKey( olc::SHIFT ).bHeld) fSpeedUp = 3.0f;
+        if (GetKey( olc::CTRL  ).bHeld) fSpeedUp = 0.2f;
+
         // Rotate - collision detection not necessary. Keep fPlayerA_deg between 0 and 360 degrees
-        if (GetKey( olc::D ).bHeld) { fPlayerA_deg += SPEED_ROTATE * fElapsedTime; if (fPlayerA_deg >= 360.0f) fPlayerA_deg -= 360.0f; }
-        if (GetKey( olc::A ).bHeld) { fPlayerA_deg -= SPEED_ROTATE * fElapsedTime; if (fPlayerA_deg <    0.0f) fPlayerA_deg += 360.0f; }
+        if (GetKey( olc::D ).bHeld) { fPlayerA_deg += SPEED_ROTATE * fSpeedUp * fElapsedTime; if (fPlayerA_deg >= 360.0f) fPlayerA_deg -= 360.0f; }
+        if (GetKey( olc::A ).bHeld) { fPlayerA_deg -= SPEED_ROTATE * fSpeedUp * fElapsedTime; if (fPlayerA_deg <    0.0f) fPlayerA_deg += 360.0f; }
 
         // variables used for collision detection - work out the new location in a seperate coordinate pair, and only alter
         // the players coordinate if there's no collision
@@ -511,10 +517,10 @@ public:
         float fNewY = fPlayerY;
 
         // walking forward, backward and strafing left, right
-        if (GetKey( olc::W ).bHeld) { fNewX += lu_cos( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; fNewY += lu_sin( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; }   // walk forward
-        if (GetKey( olc::S ).bHeld) { fNewX -= lu_cos( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; fNewY -= lu_sin( fPlayerA_deg ) * SPEED_MOVE   * fElapsedTime; }   // walk backwards
-        if (GetKey( olc::Q ).bHeld) { fNewX += lu_sin( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; fNewY -= lu_cos( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; }   // strafe left
-        if (GetKey( olc::E ).bHeld) { fNewX -= lu_sin( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; fNewY += lu_cos( fPlayerA_deg ) * SPEED_STRAFE * fElapsedTime; }   // strafe right
+        if (GetKey( olc::W ).bHeld) { fNewX += lu_cos( fPlayerA_deg ) * SPEED_MOVE   * fSpeedUp * fElapsedTime; fNewY += lu_sin( fPlayerA_deg ) * SPEED_MOVE   * fSpeedUp * fElapsedTime; }   // walk forward
+        if (GetKey( olc::S ).bHeld) { fNewX -= lu_cos( fPlayerA_deg ) * SPEED_MOVE   * fSpeedUp * fElapsedTime; fNewY -= lu_sin( fPlayerA_deg ) * SPEED_MOVE   * fSpeedUp * fElapsedTime; }   // walk backwards
+        if (GetKey( olc::Q ).bHeld) { fNewX += lu_sin( fPlayerA_deg ) * SPEED_STRAFE * fSpeedUp * fElapsedTime; fNewY -= lu_cos( fPlayerA_deg ) * SPEED_STRAFE * fSpeedUp * fElapsedTime; }   // strafe left
+        if (GetKey( olc::E ).bHeld) { fNewX -= lu_sin( fPlayerA_deg ) * SPEED_STRAFE * fSpeedUp * fElapsedTime; fNewY += lu_cos( fPlayerA_deg ) * SPEED_STRAFE * fSpeedUp * fElapsedTime; }   // strafe right
         // collision detection - check if out of bounds or inside non-empty tile
         // only update position if no collision
         if (fNewX >= 0 && fNewX < nMapX &&
@@ -525,8 +531,6 @@ public:
             fPlayerY = fNewY;
         }
 
-        // for looking up/down or crouching/flying you can speed up by keeping SHIFT pressed
-        float fSpeedUp = GetKey( olc::SHIFT ).bHeld ? 4.0f : 1.0f;
         // looking up or down - collision detection not necessary
         // NOTE - there's no clamping to extreme values (yet)
         if (GetKey( olc::UP   ).bHeld) { fLookUp += SPEED_LOOKUP * fSpeedUp * fElapsedTime; }
@@ -536,8 +540,8 @@ public:
         if (GetKey( olc::M ).bReleased) { bMouseControl = !bMouseControl; }  // toggle on or off
         float fRotFactor, fTiltFactor;
         if (bMouseControl && GetMouseSteering( fRotFactor, fTiltFactor )) {
-            fPlayerA_deg += SPEED_ROTATE * fRotFactor  * fElapsedTime;
-            fLookUp      -= SPEED_LOOKUP * fTiltFactor * fElapsedTime;
+            fPlayerA_deg += SPEED_ROTATE * fRotFactor  * fSpeedUp * fElapsedTime;
+            fLookUp      -= SPEED_LOOKUP * fTiltFactor * fSpeedUp * fElapsedTime;
         }
 
         // flying or crouching
@@ -581,10 +585,10 @@ public:
         if (GetKey( olc::R ).bReleased) { fPlayerH = 0.5f; fLookUp = 0.0f; }
 
         // alter object intensity and multiplier
-        if (GetKey( olc::INS  ).bHeld) fObjectIntensity     += INTENSITY_SPEED * fElapsedTime;
-        if (GetKey( olc::DEL  ).bHeld) fObjectIntensity     -= INTENSITY_SPEED * fElapsedTime;
-        if (GetKey( olc::HOME ).bHeld) fIntensityMultiplier += INTENSITY_SPEED * fElapsedTime;
-        if (GetKey( olc::END  ).bHeld) fIntensityMultiplier -= INTENSITY_SPEED * fElapsedTime;
+        if (GetKey( olc::INS  ).bHeld) fObjectIntensity     += INTENSITY_SPEED * fSpeedUp * fElapsedTime;
+        if (GetKey( olc::DEL  ).bHeld) fObjectIntensity     -= INTENSITY_SPEED * fSpeedUp * fElapsedTime;
+        if (GetKey( olc::HOME ).bHeld) fIntensityMultiplier += INTENSITY_SPEED * fSpeedUp * fElapsedTime;
+        if (GetKey( olc::END  ).bHeld) fIntensityMultiplier -= INTENSITY_SPEED * fSpeedUp * fElapsedTime;
 
         // toggles for HUDs
         if (GetKey( olc::I ).bPressed) bDebugInfo = !bDebugInfo;
@@ -778,18 +782,18 @@ public:
                 switch (nDrawMode) {
                     case SKY_DRAWING: {                         // ========== render ceiling ====================
                             if (RENDER_CEILING) {
-                                olc::Pixel ceilSample = get_ceil_sample( x, y );
+                                olc::Pixel ceilSample = get_ceil_sample( x, y );   // shading is done in get_ceil_sample()
                                 DrawDepth( fCurDistance, x, y, ceilSample );
                             }
                         }
                         break;
                     case FLOOR_DRAWING: {                        // ========== render floor   ====================
-                            olc::Pixel floorSample = get_floor_sample( x, y );
+                            olc::Pixel floorSample = get_floor_sample( x, y );   // shading is done in get_floor_sample()
                             DrawDepth( fMaxDistance, x, y, floorSample );
                         }
                         break;
                     case ROOF_DRAWING: {                        // ========== render roof   ====================
-                            olc::Pixel roofSample = get_roof_sample( x, y, fColHeight );
+                            olc::Pixel roofSample = get_roof_sample( x, y, fColHeight );   // shading is done in get_roof_sample()
                             DrawDepth( fCurDistance, x, y, roofSample );
                         }
                         break;
@@ -835,8 +839,8 @@ public:
                             }
 
                             // having both sample coordinates, get the sample, shade it and draw the pixel
-                            olc::Pixel wallSample = pWallSprite->Sample( fSampleX, fSampleY );
-                            DrawDepth( fCurDistance, x, y, ShadePixel( wallSample, fCurDistance ));
+                            olc::Pixel wallSample = ShadePixel( pWallSprite->Sample( fSampleX, fSampleY ), fCurDistance );
+                            DrawDepth( fCurDistance, x, y, wallSample );
                         }
                         break;
                 }
@@ -922,9 +926,9 @@ public:
                             float fSampleX = fx / fObjWidth;
                             float fSampleY = fy / fObjHeight;
                             // sample the pixel and draw it
-                            olc::Pixel pSample = object.sprite->Sample( fSampleX, fSampleY );
-                            if (pSample != olc::BLANK) {
-                                DrawDepth( fObjDist, nObjColumn, fObjCeiling + fy, ShadePixel( pSample, fObjDist ));
+                            olc::Pixel objSample = ShadePixel( object.sprite->Sample( fSampleX, fSampleY ), fObjDist );
+                            if (objSample != olc::BLANK) {
+                                DrawDepth( fObjDist, nObjColumn, fObjCeiling + fy, objSample );
                             }
                         }
                     }
