@@ -19,7 +19,7 @@ July 25, 2023
 After implementing the ray casting tutorial series I decided to elaborate on the functionality of this code. Starting from part 20 I'm currently expanding on the series.
 
 Additional dependencies:
-3. starting with part 23 I isolated map definition info in separate .h files (this is also the file that contains the sprite file names and locations).
+1. starting with part 23 I isolated map definition info in separate .h files (this is also the file that contains the sprite file names and locations).
 
 Check out the file Raycasting tutorial - implementations on github YYYYMMDD.pdf to see what has been added. I added my notes of these implementations as a PDF in this repo (see Notes - Permadi Raycasting Tutorial YYYYMMDD.pdf). 
 
